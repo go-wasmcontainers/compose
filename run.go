@@ -69,7 +69,8 @@ type Container struct {
 }
 
 // projectFilter selects a project's resources by their label; the engine
-// (v0.14.0 and later) applies it, and the client sends it (v0.18.0).
+// (v0.14.0 and later) applies it; the client's *Filtered methods send it
+// (v0.20.0 and later; v0.18.0's variadic form is gone).
 func projectFilter(project string) api.Filters {
 	return api.Filters{"label": {LabelProject + "=" + project}}
 }
@@ -77,7 +78,7 @@ func projectFilter(project string) api.Filters {
 // Containers lists the project's containers (all states), sorted by
 // service then number; the engine filters them by the project's label.
 func (r *Runner) Containers(ctx context.Context, project string) ([]Container, error) {
-	all, err := r.Client.Containers(ctx, true, projectFilter(project))
+	all, err := r.Client.ContainersFiltered(ctx, true, projectFilter(project))
 	if err != nil {
 		return nil, err
 	}
@@ -673,7 +674,7 @@ func (r *Runner) Down(ctx context.Context, p *Project, volumes bool) error {
 		}
 		r.printf(" Container %s  Removed\n", c.Name)
 	}
-	nets, err := r.Client.Networks(ctx, projectFilter(p.Name))
+	nets, err := r.Client.NetworksFiltered(ctx, projectFilter(p.Name))
 	if err != nil {
 		return err
 	}
@@ -689,7 +690,7 @@ func (r *Runner) Down(ctx context.Context, p *Project, volumes bool) error {
 	if !volumes {
 		return nil
 	}
-	vols, err := r.Client.Volumes(ctx, projectFilter(p.Name))
+	vols, err := r.Client.VolumesFiltered(ctx, projectFilter(p.Name))
 	if err != nil {
 		return err
 	}

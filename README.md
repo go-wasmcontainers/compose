@@ -4,7 +4,7 @@
 [![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue)](LICENSE)
 [![CI](https://github.com/go-wasmcontainers/compose/actions/workflows/ci.yml/badge.svg)](https://github.com/go-wasmcontainers/compose/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/go-wasmcontainers/compose.svg)](https://pkg.go.dev/github.com/go-wasmcontainers/compose)
-![status](https://img.shields.io/badge/status-M1%20loader-yellow)
+![status](https://img.shields.io/badge/status-M1-green)
 
 **Multi-container applications for the
 [go-wasmcontainers engine](https://github.com/go-wasmcontainers/engine)**,
@@ -16,15 +16,65 @@ and HCL2** — which load to the same model. Pure Go (`CGO_ENABLED=0`); it
 builds for `GOOS=js` and `GOOS=wasip1`, because it runs in the browser
 [playground](https://github.com/go-wasmcontainers/playground) too.
 
-> **Status: M1, loader.** Loading is complete — discovery, YAML/JSON/HCL2,
+> **Status: M1.** Loading is complete — discovery, YAML/JSON/HCL2,
 > interpolation, `.env`, merging of several files, `extends`, `include`,
-> profiles, validation against the specification's schema — and `wctr
-> compose config` prints the normalised model in any of the three formats.
-> Running the application (`up`, `down`, `ps`, `logs`, `start`, `stop`,
-> `restart`, `rm`, `pull`, `images`) is the next step; see
+> profiles, validation against the specification's schema — and the
+> application runs on the engine: `up`, `down`, `ps`, `logs`, `start`,
+> `stop`, `restart`, `rm`, `pull`, `images`, `config`. What the engine
+> cannot do yet (health checks, several networks per container, network
+> aliases, published ports, restart policies) is listed in
 > [Limitations](#limitations).
 
 ## Demo
+
+A one-shot service fills a volume, a server serves it read-only on the
+project's network, a client fetches it by the server's name — the
+`TestLab` integration test, run against an in-process engine:
+
+```yaml
+name: lab
+services:
+  init:
+    image: labapp
+    command: [write, /data/msg, "hello from a volume"]
+    volumes: [data:/data]
+  web:
+    image: labapp
+    command: [serve, "8080", /data/msg]
+    environment: [GREETING]
+    volumes: ["data:/data:ro"]
+    depends_on:
+      init: {condition: service_completed_successfully}
+  client:
+    image: labapp
+    command: [get, "http://lab-web-1:8080/"]
+    depends_on: [web]
+volumes:
+  data: {}
+```
+
+```console
+$ GREETING=hi wctr compose up -d
+ Network lab_default  Created
+ Volume lab_data  Created
+ Container lab-init-1  Created
+ Container lab-init-1  Started
+ Container lab-init-1  Exited (0)
+ Container lab-web-1  Created
+ Container lab-web-1  Started
+ Container lab-client-1  Created
+ Container lab-client-1  Started
+$ wctr compose logs client
+lab-client-1 | got: hello from a volume (greeting hi)
+$ wctr compose down -v
+```
+
+`labapp` is a stock Go `wasip1` program using
+[stealthrocket/net](https://github.com/stealthrocket/net)
+(`testdata/wasm/labapp`).
+
+`config` validates a file and prints the normalised model, here from HCL2
+to YAML:
 
 ```console
 $ go install github.com/go-wasmcontainers/compose/cmd/wctr-compose@latest
@@ -85,8 +135,10 @@ volumes:
     name: lab_data
 ```
 
-`wctr-compose` is the command on its own; the engine's `wctr` will wire
-the same command tree as `wctr compose`.
+`wctr-compose` is the command on its own (`-H` names the engine's socket,
+as for `wctr`); inside `wctr` it is `wctr compose`, wired through wctr's
+`cli.Options.Extra` with wctr's own engine connection (natively its `-H`,
+in the playground the in-process transport).
 
 ## Compose files in three formats
 
@@ -106,9 +158,33 @@ the same model (tested and fuzzed). Files of different formats merge:
 
 `wctr compose [-f FILE]... [-p NAME] [--profile P]... [--project-directory DIR] [--env-file FILE]... COMMAND`
 
+The global flags come **before** the command, as in the compose CLI: `-f`
+is `--file` there, and `--follow` after `logs`.
+
 | Command | Flags |
 |---|---|
+| `up [SERVICE...]` | `-d/--detach`, `--force-recreate`, `--build` (refused until `wctr build` is reachable), `--remove-orphans`. Creates the project's networks and volumes, pulls missing images, creates and starts containers dependencies first; a container whose configuration hash and image did not change is kept (started again if it stopped). Without `-d`, follows the logs until every container exits; an interrupt stops them |
+| `down` | `-v/--volumes` (never external ones). Works with `-p NAME` alone, with no Compose file |
+| `ps [SERVICE...]` | `-a/--all`, `-q/--quiet` |
+| `logs [SERVICE...]` | `-f/--follow`; lines prefixed with the container's name |
+| `start`, `stop`, `restart` `[SERVICE...]` | dependencies first (stop: dependents first) |
+| `rm [SERVICE...]` | `-s/--stop`; stopped containers only otherwise; `-f` accepted (there is no question) |
+| `pull [SERVICE...]` | |
+| `images [SERVICE...]` | |
 | `config [SERVICE...]` | `--format yaml\|json\|hcl` (default `yaml`), `-q/--quiet` (validate only), `--services` (names only) |
+
+Resources are named and labelled as the specification says: containers
+`<project>-<service>-<n>` (or `container_name`), networks and volumes
+`<project>_<key>` (or `name`; external ones by their key), every one
+labelled `com.docker.compose.project`, containers also
+`com.docker.compose.service`, `.container-number`, `.config-hash`,
+`.image`, `.oneoff`, `.depends_on`, networks `.network`, volumes `.volume`.
+
+**Dependencies**: `service_started` waits for the dependency's containers
+to be started; `service_completed_successfully` waits for them to exit and
+fails `up` if one exited non-zero; `service_healthy` **fails at once**
+(`the engine does not run health checks yet`) instead of waiting forever —
+or warns and carries on when the dependency has `required: false`.
 
 Without `-f`, the project directory is searched for `compose.yaml`,
 `compose.yml`, `compose.json`, `compose.hcl`, then the specification's
@@ -162,7 +238,7 @@ out, err := compose.Marshal(p, compose.HCL)  // or compose.YAML, compose.JSON
 
 | Package | What it does |
 |---|---|
-| `compose` | `Load` (discovery, interpolation, merge, `extends`, `include`, profiles, validation) into `Project`; `Marshal` in the three formats |
+| `compose` | `Load` (discovery, interpolation, merge, `extends`, `include`, profiles, validation) into `Project`; `Marshal` in the three formats; `Runner` drives the engine through its API client only (`Up`, `Down`, `Start`, `Stop`, `Restart`, `Rm`, `Pull`, `Logs`, `Attach`, `Containers`) |
 | `tree` | the position-carrying document the three readers produce: `ParseYAML`, `ParseJSON`, `ParseHCL`, all bounded |
 | `interp` | the specification's variable interpolation, bounded, never executing anything |
 | `dotenv` | env files in the specification's syntax |
@@ -186,9 +262,12 @@ numbers are indicative:
 The reference loader, compose-go v2.16.2, takes 49 ms and 674k
 allocations on the same YAML file (it also runs the full JSON-schema
 validation, which here runs in the tests). In a `GOOS=js` build, loading and
-writing the three formats weighs 5.4 MB over a baseline program, of which
+writing the three formats weighed 5.4 MB over a baseline program, of which
 HCL2 (hcl + go-cty) is most; compose-go plus HCL2 would weigh 8.1 MB
-([docs/REFERENCES.md](docs/REFERENCES.md)).
+([docs/REFERENCES.md](docs/REFERENCES.md)). Since the package also holds
+the engine driver, a program using it links the engine's API client
+(`net/http`) too: 11.5 MB in all against 4.4 MB for the baseline — inside
+wctr, which links that client already, the loader is the difference.
 
 ## Security
 
@@ -218,12 +297,28 @@ playground loads one from a page.
 
 ## Limitations
 
-- Running applications (`up`, `down`, `ps`, `logs`, `start`, `stop`,
-  `restart`, `rm`, `pull`, `images`) comes next.
+- What the engine cannot do yet, and compose therefore does not:
+  - **health checks**: `service_healthy` fails clearly (the engine cannot
+    run a command in a container yet);
+  - **one network per container**: a service on several networks joins
+    the first (by name) and a warning says which it did not join;
+  - **network aliases**: not applied (warning); a container answers to its
+    name (`lab-web-1`), not to its service's name;
+  - **published ports** (`ports`) and **restart policies** (`restart`):
+    accepted with a warning, not applied;
+  - **builds**: `build:` is loaded; `up --build`, and a service with a
+    build section and no image, are refused until `wctr build` is
+    reachable from compose.
+- The engine's container list has no label filter yet: compose lists all
+  containers and matches the project's labels itself.
+- `wctr compose -f FILE ...` needs wctr's root command to set cobra's
+  `TraverseChildren` (global flags before the subcommand); the standalone
+  `wctr-compose` sets it.
 - Refused on purpose: host bind mounts, `tmpfs`/`image`/`npipe` mounts,
   anonymous volumes, `network_mode` other than `none`, network drivers
   other than `bridge`, volume drivers other than `local`, files outside the
-  project directory, infinities and NaN.
+  project directory, `image: oci:<dir>` (an OCI layout on the host: `wctr
+  pull` it first, then name the image), infinities and NaN.
 - Accepted with a warning and not applied: `ports` (until the engine
   publishes ports), `restart` (no restart policy in the engine yet),
   `secrets`, `configs`, `models`, and every other attribute the engine has

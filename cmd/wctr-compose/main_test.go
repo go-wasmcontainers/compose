@@ -21,7 +21,7 @@ func TestConfigNative(t *testing.T) {
 	write("compose.hcl", "service \"web\" {\n  image = \"web:${var.TAG}\"\n  ports = [\"80:80\"]\n}\n")
 	write(".env", "TAG=7\n")
 	var out, errb bytes.Buffer
-	if code := run([]string{"config", "--format", "json", "-f", filepath.Join(dir, "compose.hcl")}, &out, &errb); code != 0 {
+	if code := run([]string{"-f", filepath.Join(dir, "compose.hcl"), "config", "--format", "json"}, &out, &errb); code != 0 {
 		t.Fatalf("exit %d: %s", code, errb.String())
 	}
 	if !strings.Contains(out.String(), `"image": "web:7"`) || !strings.Contains(out.String(), `"name": "mylab"`) {

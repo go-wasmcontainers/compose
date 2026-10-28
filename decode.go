@@ -311,6 +311,13 @@ func (l *loader) service(name string, n *tree.Node) (*Service, error) {
 			}
 		}
 	}
+	if strings.HasPrefix(s.Image, "oci:") {
+		// The engine reads oci:<dir> from the host: an untrusted Compose
+		// file may not name host paths (no binds, no files outside the
+		// project). Pull the layout first (wctr pull oci:...), then name
+		// the image it gave.
+		return nil, tree.Errorf(n.Get("image").Pos, "image %q names an OCI layout on the host: pull it with `wctr pull` first and use the image's name", s.Image)
+	}
 	if s.Image == "" && s.Build == nil {
 		return nil, tree.Errorf(n.Pos, "service %q has neither an image nor a build section", name)
 	}

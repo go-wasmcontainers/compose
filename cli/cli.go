@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/go-wasmcontainers/compose"
+	"github.com/go-wasmcontainers/engine/api"
 	"github.com/spf13/cobra"
 )
 
@@ -24,6 +25,11 @@ type Options struct {
 	// Environ is the environment interpolation reads. Nil: the process
 	// environment (os.Environ).
 	Environ func() []string
+	// Client reaches the engine. Inside wctr it is wctr's own (-H, or the
+	// playground's in-process transport: wctr's cli.Options.Extra hands
+	// it over as Engine.Client). Nil: the command adds its own -H/--host
+	// flag ($WCTR_HOST, else the default socket) and uses api.NewClient.
+	Client func() (*api.Client, error)
 }
 
 // flags are the global flags of `compose`.
@@ -48,14 +54,36 @@ Compose files may be written in YAML, JSON or HCL2 (compose.yaml,
 compose.json, compose.hcl); see docs/HCL.md for the HCL2 mapping.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		// The global flags come before the subcommand, as in the compose
+		// CLI, so `-f` can mean --file there and --follow after `logs`.
+		// Cobra honours this on the command Execute starts from: wctr's
+		// root must set it too for `wctr compose -f FILE ...`.
+		TraverseChildren: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				return fmt.Errorf("unknown command %q for %q", args[0], cmd.CommandPath())
+			}
+			return cmd.Help()
+		},
 	}
-	pf := cmd.PersistentFlags()
+	pf := cmd.Flags()
 	pf.StringArrayVarP(&f.files, "file", "f", nil, "Compose file (repeatable; later files override earlier ones)")
 	pf.StringVarP(&f.project, "project-name", "p", "", "project name")
 	pf.StringArrayVar(&f.profiles, "profile", nil, "activate a profile (repeatable)")
 	pf.StringVar(&f.projectDir, "project-directory", "", "project directory (default: the first file's directory)")
 	pf.StringArrayVar(&f.envFiles, "env-file", nil, "environment file (repeatable; default .env in the project directory)")
-	cmd.AddCommand(configCmd(opt, f))
+	if opt.Client == nil {
+		var host string
+		pf.StringVarP(&host, "host", "H", api.DefaultHost(), "engine socket (unix:///path; default $"+api.HostEnv+", else unix://"+api.DefaultSocket+")")
+		opt.Client = func() (*api.Client, error) { return api.NewClient(host) }
+	}
+	cmd.AddCommand(
+		configCmd(opt, f), upCmd(opt, f), downCmd(opt, f), psCmd(opt, f), logsCmd(opt, f),
+		actionCmd(opt, f, "start", "Start the services' existing containers"),
+		actionCmd(opt, f, "stop", "Stop the services' running containers"),
+		actionCmd(opt, f, "restart", "Restart the services' containers"),
+		rmCmd(opt, f), pullCmd(opt, f), imagesCmd(opt, f),
+	)
 	return cmd
 }
 

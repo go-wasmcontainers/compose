@@ -65,10 +65,9 @@ func New(o Options) compose.BuildFunc {
 			}
 		}
 		tags := append([]string{p.ImageName(s)}, b.Tags...)
+		// api.Client's base ends with the API version; driver.NewClient
+		// (build >= v0.2.1) accepts it with or without.
 		hc, base := o.Client.HTTP()
-		// api.Client's base already ends with the API version, which
-		// driver.NewClient appends itself.
-		base = strings.TrimSuffix(base, "/v"+api.APIVersion)
 		res, err := builder.Build(ctx, builder.Options{
 			Containerfile: df, Name: name, Context: bc, Ignored: ignored,
 			BuildArgs: args, Target: b.Target, Tags: tags, NoCache: noCache,

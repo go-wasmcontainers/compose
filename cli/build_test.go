@@ -10,8 +10,35 @@ import (
 	"time"
 
 	"github.com/go-wasmcontainers/build/builder"
+	"github.com/go-wasmcontainers/build/driver"
 	"github.com/go-wasmcontainers/engine/api"
 )
+
+// TestDriverBaseForms: imagebuild hands the builder api.Client's base,
+// which ends in the API version; build's driver must reach the engine
+// with it and without it (build v0.2.0 doubled the version: every
+// request was the router's 404).
+func TestDriverBaseForms(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds a wasip1 guest")
+	}
+	c := engine(t)
+	layout := filepath.Join(t.TempDir(), "layout")
+	writeLayout(t, layout, "labapp", labapp(t))
+	if err := c.Pull(context.Background(), "oci:"+layout+":labapp", func(api.JSONMessage) {}); err != nil {
+		t.Fatal(err)
+	}
+	hc, base := c.HTTP()
+	if !strings.HasSuffix(base, "/v"+api.APIVersion) {
+		t.Fatalf("api.Client base %q: the case this test covers is gone", base)
+	}
+	for _, b := range []string{base, strings.TrimSuffix(base, "/v"+api.APIVersion)} {
+		img, err := driver.NewClient(hc, b).InspectImage(context.Background(), "labapp")
+		if err != nil || img == nil {
+			t.Fatalf("base %q: %v", b, err)
+		}
+	}
+}
 
 const buildCompose = `name: bld
 services:

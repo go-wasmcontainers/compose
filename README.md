@@ -176,7 +176,7 @@ is `--file` there, and `--follow` after `logs`.
 
 **Builds.** A service's `build:` section is built with
 [go-wasmcontainers/build](https://github.com/go-wasmcontainers/build)
-v0.2.0 through the engine (its exported `builder.Build`; package
+v0.2.1 through the engine (its exported `builder.Build`; package
 `imagebuild` here): `context` (a directory of the project, resolved from
 the Compose file's directory; its `.containerignore`, else `.dockerignore`,
 applies), `dockerfile` (relative to the context, inside the project;

@@ -193,6 +193,29 @@ func (l *loader) canonicalService(s *tree.Node, dir string) error {
 			if err := listToMap(b, "labels"); err != nil {
 				return err
 			}
+			// The context is relative to the Compose file's directory
+			// (build.md); it is resolved here, inside the project. A
+			// remote (Git URL) context is refused: compose reads no
+			// network source.
+			c := b.Get("context")
+			ctx := "."
+			if c != nil {
+				var err error
+				if ctx, err = c.AsString(); err != nil {
+					return err
+				}
+			} else {
+				c = tree.NewString(".", b.Pos)
+				b.Set("context", c)
+			}
+			if strings.Contains(ctx, "://") || strings.HasPrefix(ctx, "git@") {
+				return tree.Errorf(c.Pos, "build context %q: remote build contexts are not supported (use a directory of the project)", ctx)
+			}
+			r, err := resolvePath(dir, ctx)
+			if err != nil {
+				return tree.Errorf(c.Pos, "build context: %v", err)
+			}
+			c.Kind, c.Text = tree.String, r
 		}
 	}
 	if e := s.Get("extends"); e != nil {

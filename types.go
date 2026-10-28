@@ -65,12 +65,31 @@ type Service struct {
 	Extensions    map[string]any             `json:"-"`
 }
 
-// Build is a service's build section (built by `wctr build` when present).
+// Build is a service's build section (build.md), built by
+// go-wasmcontainers/build through the engine.
 type Build struct {
-	Context    string             `json:"context"`
-	Dockerfile string             `json:"dockerfile,omitempty"`
-	Args       map[string]*string `json:"args,omitempty"`
-	Target     string             `json:"target,omitempty"`
+	// Context is the build context's directory in the project's file
+	// system (resolved from the Compose file's directory).
+	Context string `json:"context"`
+	// Dockerfile is relative to Context (default Containerfile, else
+	// Dockerfile); DockerfileInline is the file's content instead.
+	Dockerfile       string             `json:"dockerfile,omitempty"`
+	DockerfileInline string             `json:"dockerfile_inline,omitempty"`
+	Args             map[string]*string `json:"args,omitempty"`
+	Target           string             `json:"target,omitempty"`
+	// Tags name the built image besides the service's image name.
+	Tags    []string `json:"tags,omitempty"`
+	NoCache bool     `json:"no_cache,omitempty"`
+}
+
+// ImageName is the image a service's containers run: its `image`, else
+// "<project>-<service>" for a service that is built (as the reference
+// implementation names it; build.md lets an implementation compute one).
+func (p *Project) ImageName(s *Service) string {
+	if s.Image != "" {
+		return s.Image
+	}
+	return p.Name + "-" + s.Name
 }
 
 // Mount is a volume mounted into a service's containers. Only named

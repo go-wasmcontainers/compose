@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/go-wasmcontainers/build/builder"
 	"github.com/go-wasmcontainers/compose"
 	"github.com/go-wasmcontainers/engine/api"
 	"github.com/spf13/cobra"
@@ -30,6 +31,10 @@ type Options struct {
 	// it over as Engine.Client). Nil: the command adds its own -H/--host
 	// flag ($WCTR_HOST, else the default socket) and uses api.NewClient.
 	Client func() (*api.Client, error)
+	// BuildCache keeps build steps between builds. Nil: natively the
+	// cache `wctr build` keeps ($XDG_CACHE_HOME/wasmcontainers); with a
+	// host FS (a browser), one per build unless the host passes its own.
+	BuildCache builder.Cache
 }
 
 // flags are the global flags of `compose`.
@@ -39,6 +44,8 @@ type flags struct {
 	profiles   []string
 	projectDir string
 	envFiles   []string
+	// release closes what the running command opened.
+	release []func()
 }
 
 // Command returns the `compose` command.
@@ -82,21 +89,55 @@ compose.json, compose.hcl); see docs/HCL.md for the HCL2 mapping.`,
 		actionCmd(opt, f, "start", "Start the services' existing containers"),
 		actionCmd(opt, f, "stop", "Stop the services' running containers"),
 		actionCmd(opt, f, "restart", "Restart the services' containers"),
-		rmCmd(opt, f), pullCmd(opt, f), imagesCmd(opt, f),
+		rmCmd(opt, f), pullCmd(opt, f), imagesCmd(opt, f), buildCmd(opt, f),
 	)
+	// What a command opened (the project's file system, the build cache)
+	// is released when it ends, whatever its outcome.
+	for _, c := range cmd.Commands() {
+		if run := c.RunE; run != nil {
+			c.RunE = func(cmd *cobra.Command, args []string) error {
+				defer func() {
+					for _, done := range f.release {
+						done()
+					}
+					f.release = nil
+				}()
+				return run(cmd, args)
+			}
+		}
+	}
 	return cmd
 }
 
 // load reads the project the flags describe.
 func load(opt Options, f *flags) (*compose.Project, error) {
+	p, _, done, err := loadFS(opt, f)
+	if done != nil {
+		done()
+	}
+	return p, err
+}
+
+// loadFS reads the project and returns the file system it came from
+// (builds read their contexts there); done releases it.
+func loadFS(opt Options, f *flags) (*compose.Project, fs.FS, func(), error) {
 	o := compose.Options{ProjectName: f.project, Profiles: f.profiles, Environment: environ(opt)}
 	if opt.FS != nil {
 		o.FS = opt.FS
 		o.WorkingDir = f.projectDir
 		o.Files = f.files
 		o.EnvFiles = f.envFiles
-		return compose.Load(o)
+		p, err := compose.Load(o)
+		return p, opt.FS, nil, err
 	}
+	p, root, err := loadNative(o, f)
+	if root == nil {
+		return p, nil, nil, err
+	}
+	return p, root.FS(), func() { root.Close() }, err
+}
+
+func loadNative(o compose.Options, f *flags) (*compose.Project, *os.Root, error) {
 	dir := f.projectDir
 	if dir == "" {
 		dir = "."
@@ -106,13 +147,12 @@ func load(opt Options, f *flags) (*compose.Project, error) {
 	}
 	abs, err := filepath.Abs(dir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	root, err := os.OpenRoot(abs)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	defer root.Close() // Load reads every file before it returns
 	o.FS = root.FS()
 	o.WorkingDir = "."
 	rel := func(p string) (string, error) {
@@ -129,21 +169,22 @@ func load(opt Options, f *flags) (*compose.Project, error) {
 	for _, file := range f.files {
 		r, err := rel(file)
 		if err != nil {
-			return nil, err
+			return nil, root, err
 		}
 		o.Files = append(o.Files, r)
 	}
 	for _, e := range f.envFiles {
 		r, err := rel(e)
 		if err != nil {
-			return nil, err
+			return nil, root, err
 		}
 		o.EnvFiles = append(o.EnvFiles, r)
 	}
 	// The FS is rooted at the project directory: its name is the
 	// default project name.
 	o.DefaultName = compose.NormalizeProjectName(filepath.Base(abs))
-	return compose.Load(o)
+	p, err := compose.Load(o)
+	return p, root, err
 }
 
 func environ(opt Options) map[string]string {

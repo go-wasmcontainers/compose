@@ -163,7 +163,7 @@ is `--file` there, and `--follow` after `logs`.
 
 | Command | Flags |
 |---|---|
-| `up [SERVICE...]` | `-d/--detach`, `--force-recreate`, `--build` (refused until `wctr build` is reachable), `--remove-orphans`. Creates the project's networks and volumes, pulls missing images, creates and starts containers dependencies first; a container whose configuration hash and image did not change is kept (started again if it stopped). Without `-d`, follows the logs until every container exits; an interrupt stops them |
+| `up [SERVICE...]` | `-d/--detach`, `--force-recreate`, `--build`, `--remove-orphans`. Builds or pulls missing images (see Builds), creates the project's networks and volumes, creates and starts containers dependencies first; a container whose configuration hash and image did not change is kept (started again if it stopped). Without `-d`, follows the logs until every container exits; an interrupt stops them |
 | `down` | `-v/--volumes` (never external ones). Works with `-p NAME` alone, with no Compose file |
 | `ps [SERVICE...]` | `-a/--all`, `-q/--quiet` |
 | `logs [SERVICE...]` | `-f/--follow`; lines prefixed with the container's name |
@@ -171,7 +171,25 @@ is `--file` there, and `--follow` after `logs`.
 | `rm [SERVICE...]` | `-s/--stop`; stopped containers only otherwise; `-f` accepted (there is no question) |
 | `pull [SERVICE...]` | |
 | `images [SERVICE...]` | |
+| `build [SERVICE...]` | `--no-cache` |
 | `config [SERVICE...]` | `--format yaml\|json\|hcl` (default `yaml`), `-q/--quiet` (validate only), `--services` (names only) |
+
+**Builds.** A service's `build:` section is built with
+[go-wasmcontainers/build](https://github.com/go-wasmcontainers/build)
+v0.2.0 through the engine (its exported `builder.Build`; package
+`imagebuild` here): `context` (a directory of the project, resolved from
+the Compose file's directory; its `.containerignore`, else `.dockerignore`,
+applies), `dockerfile` (relative to the context, inside the project;
+default `Containerfile`, else `Dockerfile`), `dockerfile_inline`, `args` (a
+name alone takes the environment's value, else is left unset), `target`,
+`tags`, `no_cache`. The image is named by the service's `image`, else
+`<project>-<service>`. `up` builds an image that is missing (a service with
+an `image` is pulled first and built if the pull fails, as build.md says),
+`up --build` and `compose build` always build — through the builder's
+cache, so an unchanged build gives the same image and the containers are
+kept. Natively the cache is `wctr build`'s
+(`$XDG_CACHE_HOME/wasmcontainers/build-cache.json`); in a browser the host
+passes one (`cli.Options.BuildCache`).
 
 Resources are named and labelled as the specification says: containers
 `<project>-<service>-<n>` (or `container_name`), networks and volumes
@@ -196,7 +214,8 @@ the top-level `name`, else the project directory's name.
 
 Everything the specification defines is parsed; what this engine applies:
 
-- **Services**: `image`, `build` (recorded for `wctr build`), `command`,
+- **Services**: `image`, `build` (`context`, `dockerfile`,
+  `dockerfile_inline`, `args`, `target`, `tags`, `no_cache`), `command`,
   `entrypoint`, `environment`, `env_file` (with `required` and `format:
   raw`), `working_dir`, `volumes` (named volumes), `networks` (with
   `aliases`), `network_mode: none`, `depends_on` (`service_started`,
@@ -243,6 +262,7 @@ out, err := compose.Marshal(p, compose.HCL)  // or compose.YAML, compose.JSON
 | `interp` | the specification's variable interpolation, bounded, never executing anything |
 | `dotenv` | env files in the specification's syntax |
 | `schema` | the embedded official JSON schema: which attributes exist where |
+| `imagebuild` | `New(Options) compose.BuildFunc`: builds `build:` sections with go-wasmcontainers/build, the context read from the project's file system only |
 | `cli` | the cobra command tree, `Command(Options) *cobra.Command`, for `wctr compose` |
 | `cmd/wctr-compose` | the command on its own |
 
@@ -289,7 +309,8 @@ playground loads one from a page.
   (`env_file`, `include`, `extends.file`, `--env-file`) resolves inside the
   project directory; absolute paths and `..` past the top are refused, and
   natively the directory is opened with `os.OpenRoot`, so a symbolic link
-  cannot leave it either. **No host bind mounts**: a WebAssembly engine has
+  cannot leave it either. Build contexts and `dockerfile` paths too; remote
+  (Git URL) build contexts are refused. **No host bind mounts**: a WebAssembly engine has
   no host filesystem to share (in a browser there is none).
 - **Fuzzed** in CI: the YAML, JSON and HCL2 readers, the interpolator, the
   env-file parser, and `Load` with its round trip through the three
@@ -305,10 +326,12 @@ playground loads one from a page.
   - **network aliases**: not applied (warning); a container answers to its
     name (`lab-web-1`), not to its service's name;
   - **published ports** (`ports`) and **restart policies** (`restart`):
-    accepted with a warning, not applied;
-  - **builds**: `build:` is loaded; `up --build`, and a service with a
-    build section and no image, are refused until `wctr build` is
-    reachable from compose.
+    accepted with a warning, not applied.
+- Builds: remote (Git URL) contexts, `additional_contexts`, `cache_from`
+  / `cache_to`, `platforms`, `secrets`, `ssh`, build `labels` and the other
+  build attributes are accepted with a warning and not applied; what the
+  builder itself does not do yet is in go-wasmcontainers/build's README
+  (shell-form `RUN` needs process spawning).
 - The engine's container list has no label filter yet: compose lists all
   containers and matches the project's labels itself.
 - `wctr compose -f FILE ...` needs wctr's root command to set cobra's

@@ -188,6 +188,15 @@ func (s *Service) tree() *tree.Node {
 		if s.Build.Dockerfile != "" {
 			b.Set("dockerfile", str2(s.Build.Dockerfile))
 		}
+		if s.Build.DockerfileInline != "" {
+			b.Set("dockerfile_inline", str2(s.Build.DockerfileInline))
+		}
+		if s.Build.NoCache {
+			b.Set("no_cache", boolNode(true))
+		}
+		if len(s.Build.Tags) > 0 {
+			b.Set("tags", strSeq(s.Build.Tags))
+		}
 		if s.Build.Target != "" {
 			b.Set("target", str2(s.Build.Target))
 		}

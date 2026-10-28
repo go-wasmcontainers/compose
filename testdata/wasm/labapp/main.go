@@ -46,14 +46,19 @@ func main() {
 			}
 			fmt.Fprintf(w, "%s (greeting %s)", b, os.Getenv("GREETING"))
 		})))
-	case "get":
+	case "get", "probe":
+		// get retries while the server starts; probe tries once.
 		c := &http.Client{Transport: &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 				return wasip1.DialContext(ctx, network, addr)
 			},
 		}, Timeout: 5 * time.Second}
+		tries := 100
+		if os.Args[1] == "probe" {
+			tries = 1
+		}
 		var last error
-		for i := 0; i < 100; i++ {
+		for i := 0; i < tries; i++ {
 			resp, err := c.Get(os.Args[2])
 			if err == nil {
 				b, _ := io.ReadAll(resp.Body)
@@ -65,6 +70,21 @@ func main() {
 			time.Sleep(100 * time.Millisecond)
 		}
 		fail(last)
+	case "lookup":
+		// The addresses a name resolves to, through the network's DNS
+		// (stealthrocket/net points Go's resolver at it).
+		var addrs []string
+		var err error
+		for i := 0; i < 50; i++ {
+			if addrs, err = net.DefaultResolver.LookupHost(context.Background(), os.Args[2]); err == nil && len(addrs) > 0 {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		if err != nil {
+			fail(err)
+		}
+		fmt.Printf("%s has %d addresses\n", os.Args[2], len(addrs))
 	case "env":
 		fmt.Printf("%s=%s\n", os.Args[2], os.Getenv(os.Args[2]))
 	case "fail":

@@ -37,16 +37,22 @@ volumes: {data: {}}
 	var errb bytes.Buffer
 	r := &Runner{Err: &errb}
 	s := p.Services["web"]
-	net := r.serviceNetwork(p, s)
-	if net != "h_back" || !strings.Contains(errb.String(), `joining "back" only, not front`) {
-		t.Fatalf("%q %s", net, errb.String())
+	p.Services["web"].Networks["front"].Aliases = []string{"www"}
+	net, nc := r.serviceNetworks(p, s)
+	if net != "h_back" || errb.Len() != 0 || len(nc.EndpointsConfig) != 2 ||
+		strings.Join(nc.EndpointsConfig["h_back"].Aliases, ",") != "web" ||
+		strings.Join(nc.EndpointsConfig["h_front"].Aliases, ",") != "web,www" {
+		t.Fatalf("%q %+v %s", net, nc, errb.String())
 	}
-	if r.serviceNetwork(p, p.Services["db"]) != "none" {
+	if m, nc := r.serviceNetworks(p, p.Services["db"]); m != "none" || nc != nil {
 		t.Fatal("network_mode none")
 	}
-	req, err := r.createRequest(p, s, 2, net, "sha256:abc")
+	req, err := r.createRequest(p, s, 2, "sha256:abc")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if req.NetworkingConfig == nil || len(req.NetworkingConfig.EndpointsConfig) != 2 {
+		t.Fatalf("%+v", req.NetworkingConfig)
 	}
 	if strings.Join(req.Env, ",") != "A=changed,B=2" || req.Cmd[0] != "serve" || req.Entrypoint != nil {
 		t.Fatalf("%+v", req.ContainerConfig)

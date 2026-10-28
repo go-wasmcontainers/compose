@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -68,18 +70,68 @@ type Container struct {
 	Number  int
 }
 
-// Containers lists the project's containers (all states), sorted by
-// service then number. The engine's list has no label filter yet, so the
-// labels are matched here.
-func (r *Runner) Containers(ctx context.Context, project string) ([]Container, error) {
-	all, err := r.Client.Containers(ctx, true)
+// list GETs one of the engine's list endpoints with Docker's filters
+// parameter: the engine (v0.14.0 and later) filters by label itself. The
+// API client has no filter argument, so the request goes through its
+// HTTP client and base.
+func (r *Runner) list(ctx context.Context, path string, q url.Values, filters map[string][]string, out any) error {
+	hc, base := r.Client.HTTP()
+	if q == nil {
+		q = url.Values{}
+	}
+	if len(filters) > 0 {
+		f, err := json.Marshal(filters)
+		if err != nil {
+			return err
+		}
+		q.Set("filters", string(f))
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+path+"?"+q.Encode(), nil)
 	if err != nil {
+		return err
+	}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxListBytes+1))
+	if err != nil {
+		return err
+	}
+	if len(body) > maxListBytes {
+		return fmt.Errorf("GET %s: answer larger than %d bytes", path, maxListBytes)
+	}
+	if resp.StatusCode != http.StatusOK {
+		var e api.ErrorResponse
+		if json.Unmarshal(body, &e) == nil && e.Message != "" {
+			return &api.ErrDaemon{Status: resp.StatusCode, Message: e.Message}
+		}
+		return &api.ErrDaemon{Status: resp.StatusCode, Message: strings.TrimSpace(string(body))}
+	}
+	return json.Unmarshal(body, out)
+}
+
+// maxListBytes bounds a list answer read into memory.
+const maxListBytes = 64 << 20
+
+func projectFilter(project string) map[string][]string {
+	return map[string][]string{"label": {LabelProject + "=" + project}}
+}
+
+// Containers lists the project's containers (all states), sorted by
+// service then number; the engine filters them by the project's label.
+func (r *Runner) Containers(ctx context.Context, project string) ([]Container, error) {
+	var all []api.ContainerSummary
+	if err := r.list(ctx, "/containers/json", url.Values{"all": {"1"}}, projectFilter(project), &all); err != nil {
 		return nil, err
 	}
 	var out []Container
 	for _, c := range all {
 		if c.Labels[LabelProject] != project {
-			continue
+			// The engine answered for another project: say so loudly
+			// rather than act on its containers.
+			return nil, fmt.Errorf("the engine listed container %s of project %q for project %q: its label filter did not apply", c.ID, c.Labels[LabelProject], project)
 		}
 		n, _ := strconv.Atoi(c.Labels[LabelContainerNumber])
 		name := c.ID
@@ -130,29 +182,29 @@ func (p *Project) ContainerName(s *Service, n int) string {
 	return fmt.Sprintf("%s-%s-%d", p.Name, s.Name, n)
 }
 
-// serviceNetwork chooses the network a service's containers join: the
-// engine attaches a container to one network (no `network connect` yet).
-func (r *Runner) serviceNetwork(p *Project, s *Service) string {
+// serviceNetworks returns the network a service's containers are created
+// on (the first by key) and the endpoint settings of every network they
+// join: on each, the container answers to the service's name and to its
+// aliases there (container_spec.md, networks, aliases), as well as to its
+// own name. The engine (API 1.44+ shape) joins all of them at create.
+func (r *Runner) serviceNetworks(p *Project, s *Service) (string, *api.NetworkingConfig) {
 	if s.NetworkMode == "none" {
-		return "none"
+		return "none", nil
 	}
 	keys := sortedKeys(s.Networks)
 	if len(keys) == 0 {
-		return "none"
+		return "none", nil
 	}
-	if len(keys) > 1 {
-		r.warnf("service %q: the engine attaches a container to one network; joining %q only, not %s", s.Name, keys[0], strings.Join(keys[1:], ", "))
-	}
+	nc := &api.NetworkingConfig{EndpointsConfig: map[string]*api.EndpointSettings{}}
 	for _, k := range keys {
-		if len(s.Networks[k].Aliases) > 0 {
-			r.warnf("service %q: network aliases on %q are not applied yet (the engine has no aliases); containers answer to their names", s.Name, k)
-		}
+		aliases := append([]string{s.Name}, s.Networks[k].Aliases...)
+		nc.EndpointsConfig[p.Networks[k].Name] = &api.EndpointSettings{Aliases: aliases}
 	}
-	return p.Networks[keys[0]].Name
+	return p.Networks[keys[0]].Name, nc
 }
 
 // createRequest is the engine request for a service's container.
-func (r *Runner) createRequest(p *Project, s *Service, n int, network, imageID string) (api.ContainerCreateRequest, error) {
+func (r *Runner) createRequest(p *Project, s *Service, n int, imageID string) (api.ContainerCreateRequest, error) {
 	req := api.ContainerCreateRequest{}
 	req.Image = p.ImageName(s)
 	if s.Command != nil {
@@ -194,7 +246,7 @@ func (r *Runner) createRequest(p *Project, s *Service, n int, network, imageID s
 		}
 		req.HostConfig.Binds = append(req.HostConfig.Binds, b)
 	}
-	req.HostConfig.NetworkMode = network
+	req.HostConfig.NetworkMode, req.NetworkingConfig = r.serviceNetworks(p, s)
 	return req, nil
 }
 
@@ -560,7 +612,6 @@ func (r *Runner) waitDependencies(ctx context.Context, p *Project, s *Service) e
 }
 
 func (r *Runner) upService(ctx context.Context, p *Project, s *Service, have []Container, imageID string, force bool) error {
-	network := r.serviceNetwork(p, s)
 	hash, err := ConfigHash(p, s)
 	if err != nil {
 		return err
@@ -595,7 +646,7 @@ func (r *Runner) upService(ctx context.Context, p *Project, s *Service, have []C
 			}
 			r.printf(" Container %s  Recreate\n", name)
 		}
-		req, err := r.createRequest(p, s, n, network, imageID)
+		req, err := r.createRequest(p, s, n, imageID)
 		if err != nil {
 			return err
 		}
@@ -667,13 +718,13 @@ func (r *Runner) Down(ctx context.Context, p *Project, volumes bool) error {
 		}
 		r.printf(" Container %s  Removed\n", c.Name)
 	}
-	nets, err := r.Client.Networks(ctx)
-	if err != nil {
+	var nets []api.Network
+	if err := r.list(ctx, "/networks", nil, projectFilter(p.Name), &nets); err != nil {
 		return err
 	}
 	for _, n := range nets {
 		if n.Labels[LabelProject] != p.Name {
-			continue
+			return fmt.Errorf("the engine listed network %s for project %q: its label filter did not apply", n.Name, p.Name)
 		}
 		if err := r.Client.NetworkRemove(ctx, n.Name); err != nil && !api.IsNotFound(err) {
 			return fmt.Errorf("network %s: %w", n.Name, err)
@@ -683,13 +734,13 @@ func (r *Runner) Down(ctx context.Context, p *Project, volumes bool) error {
 	if !volumes {
 		return nil
 	}
-	vols, err := r.Client.Volumes(ctx)
-	if err != nil {
+	var vols api.VolumeListResponse
+	if err := r.list(ctx, "/volumes", nil, projectFilter(p.Name), &vols); err != nil {
 		return err
 	}
-	for _, v := range vols {
+	for _, v := range vols.Volumes {
 		if v.Labels[LabelProject] != p.Name {
-			continue
+			return fmt.Errorf("the engine listed volume %s for project %q: its label filter did not apply", v.Name, p.Name)
 		}
 		if err := r.Client.VolumeRemove(ctx, v.Name, false); err != nil && !api.IsNotFound(err) {
 			return fmt.Errorf("volume %s: %w", v.Name, err)

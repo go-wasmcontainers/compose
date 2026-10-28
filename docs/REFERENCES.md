@@ -111,7 +111,12 @@ refused.
 
 ## The engine
 
-<https://github.com/go-wasmcontainers/engine> v0.12.0: `README.md`,
+<https://github.com/go-wasmcontainers/engine> v0.14.0 (v0.12.0 before
+compose v0.3.0): `api/server/filters.go`, `server.go`, `networks.go`,
+`volumes.go` (the `filters` parameter: `label` on containers, networks and
+volumes, `k`, `k=v`, `k!=v`), `daemon/networks.go` and `daemon/daemon.go`
+(`NetworkingConfig.EndpointsConfig` at create: every network named there is
+joined, API 1.44+ shape, each with its aliases), and `README.md`,
 `api/types.go`, `api/client.go` (the client's methods), `api/stdcopy.go`
 (the multiplexed log stream), `api/inproc/inproc.go`, `cli/cli.go`
 (`Options.Extra`, `Engine`: how `wctr compose` is wired),

@@ -133,9 +133,11 @@ with it; `args` (a name alone: no value unless supplied); `target`; `tags`
 in addition to `image`; `no_cache`; with both `build` and `image`, the
 image is pulled first and built if it is not found.
 
-<https://github.com/go-wasmcontainers/build> v0.2.0: `README.md`,
+<https://github.com/go-wasmcontainers/build> v0.2.1: `README.md`,
 `builder` (`Build`, `Options`, `Result`, caches), `buildcontext`
-(`PackFS`, `FromTar`, `ReadIgnore`, limits), `driver` (`NewClient`), and
+(`PackFS`, `FromTar`, `ReadIgnore`, limits), `driver` (`NewClient`, which
+from v0.2.1 accepts a base with or without the trailing API version:
+`TestDriverBaseForms` checks both against the engine), and
 `cli/cli.go` (how `wctr build` finds its Containerfile and cache, which
 compose follows).
 

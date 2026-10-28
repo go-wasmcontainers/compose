@@ -13,8 +13,8 @@ github.com/docker/go-units v0.5.0 h1:69rxXcBk27SvSaaxTtLh/8llcHD8vYHT7WSdRZ/jvr4
 github.com/docker/go-units v0.5.0/go.mod h1:fgPhTUdO+D/Jk86RDLlptpiXQzgHJF7gydDDbaIK4Dk=
 github.com/go-test/deep v1.0.3 h1:ZrJSEWsXzPOxaZnFteGEfooLba+ju3FYIbOrS+rQd68=
 github.com/go-test/deep v1.0.3/go.mod h1:wGDj63lr65AM2AQyKZd/NYHGb0R+1RLqB8NKt3aSFNA=
-github.com/go-wasmcontainers/build v0.2.0 h1:w6s8+/BDt4pS77sovxcTIizcOy8M0KwDBBuid0/ei40=
-github.com/go-wasmcontainers/build v0.2.0/go.mod h1:201sDFuf1/dKu4zenNvVLoS+dfBcl30j5B0uq2zf/zw=
+github.com/go-wasmcontainers/build v0.2.1 h1:DByfcTLIucWt1+00I8y6rI4ZCbEq6j056IBDdZ9GyGw=
+github.com/go-wasmcontainers/build v0.2.1/go.mod h1:201sDFuf1/dKu4zenNvVLoS+dfBcl30j5B0uq2zf/zw=
 github.com/go-wasmcontainers/engine v0.12.0 h1:vnVpAvI5BYIQOQFMRj2xCaCn/pSRJCrd06oqORz1V2Y=
 github.com/go-wasmcontainers/engine v0.12.0/go.mod h1:K20JKyjxWQY4LwYKVsfomGsbNXPfIJk+UDbR0zrnpNI=
 github.com/google/go-cmp v0.6.0 h1:ofyhxvXcZhMsU5ulbFiLKl/XBFqE1GSq7atu8tAmTRI=

@@ -22,7 +22,7 @@ builds for `GOOS=js` and `GOOS=wasip1`, because it runs in the browser
 > application runs on the engine: `up`, `down`, `ps`, `logs`, `start`,
 > `stop`, `restart`, `rm`, `pull`, `images`, `build`, `config` — services
 > reach each other by service name and aliases, on as many networks as
-> they declare (engine v0.14.0 or later). What the engine cannot do yet
+> they declare (engine v0.14.0 or later; built against v0.18.0). What the engine cannot do yet
 > (health checks, published ports, restart policies) is listed in
 > [Limitations](#limitations).
 

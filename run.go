@@ -9,8 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
-	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -70,60 +68,17 @@ type Container struct {
 	Number  int
 }
 
-// list GETs one of the engine's list endpoints with Docker's filters
-// parameter: the engine (v0.14.0 and later) filters by label itself. The
-// API client has no filter argument, so the request goes through its
-// HTTP client and base.
-func (r *Runner) list(ctx context.Context, path string, q url.Values, filters map[string][]string, out any) error {
-	hc, base := r.Client.HTTP()
-	if q == nil {
-		q = url.Values{}
-	}
-	if len(filters) > 0 {
-		f, err := json.Marshal(filters)
-		if err != nil {
-			return err
-		}
-		q.Set("filters", string(f))
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+path+"?"+q.Encode(), nil)
-	if err != nil {
-		return err
-	}
-	resp, err := hc.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxListBytes+1))
-	if err != nil {
-		return err
-	}
-	if len(body) > maxListBytes {
-		return fmt.Errorf("GET %s: answer larger than %d bytes", path, maxListBytes)
-	}
-	if resp.StatusCode != http.StatusOK {
-		var e api.ErrorResponse
-		if json.Unmarshal(body, &e) == nil && e.Message != "" {
-			return &api.ErrDaemon{Status: resp.StatusCode, Message: e.Message}
-		}
-		return &api.ErrDaemon{Status: resp.StatusCode, Message: strings.TrimSpace(string(body))}
-	}
-	return json.Unmarshal(body, out)
-}
-
-// maxListBytes bounds a list answer read into memory.
-const maxListBytes = 64 << 20
-
-func projectFilter(project string) map[string][]string {
-	return map[string][]string{"label": {LabelProject + "=" + project}}
+// projectFilter selects a project's resources by their label; the engine
+// (v0.14.0 and later) applies it, and the client sends it (v0.18.0).
+func projectFilter(project string) api.Filters {
+	return api.Filters{"label": {LabelProject + "=" + project}}
 }
 
 // Containers lists the project's containers (all states), sorted by
 // service then number; the engine filters them by the project's label.
 func (r *Runner) Containers(ctx context.Context, project string) ([]Container, error) {
-	var all []api.ContainerSummary
-	if err := r.list(ctx, "/containers/json", url.Values{"all": {"1"}}, projectFilter(project), &all); err != nil {
+	all, err := r.Client.Containers(ctx, true, projectFilter(project))
+	if err != nil {
 		return nil, err
 	}
 	var out []Container
@@ -718,8 +673,8 @@ func (r *Runner) Down(ctx context.Context, p *Project, volumes bool) error {
 		}
 		r.printf(" Container %s  Removed\n", c.Name)
 	}
-	var nets []api.Network
-	if err := r.list(ctx, "/networks", nil, projectFilter(p.Name), &nets); err != nil {
+	nets, err := r.Client.Networks(ctx, projectFilter(p.Name))
+	if err != nil {
 		return err
 	}
 	for _, n := range nets {
@@ -734,11 +689,11 @@ func (r *Runner) Down(ctx context.Context, p *Project, volumes bool) error {
 	if !volumes {
 		return nil
 	}
-	var vols api.VolumeListResponse
-	if err := r.list(ctx, "/volumes", nil, projectFilter(p.Name), &vols); err != nil {
+	vols, err := r.Client.Volumes(ctx, projectFilter(p.Name))
+	if err != nil {
 		return err
 	}
-	for _, v := range vols.Volumes {
+	for _, v := range vols {
 		if v.Labels[LabelProject] != p.Name {
 			return fmt.Errorf("the engine listed volume %s for project %q: its label filter did not apply", v.Name, p.Name)
 		}

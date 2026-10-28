@@ -163,7 +163,7 @@ services:
       init: {condition: service_completed_successfully}
   client:
     image: labapp
-    command: [get, "http://lab-web-1:8080/"]
+    command: [get, "http://web:8080/"]
     depends_on: [web]
 volumes:
   data: {}

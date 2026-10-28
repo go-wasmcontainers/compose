@@ -20,9 +20,10 @@ builds for `GOOS=js` and `GOOS=wasip1`, because it runs in the browser
 > interpolation, `.env`, merging of several files, `extends`, `include`,
 > profiles, validation against the specification's schema — and the
 > application runs on the engine: `up`, `down`, `ps`, `logs`, `start`,
-> `stop`, `restart`, `rm`, `pull`, `images`, `config`. What the engine
-> cannot do yet (health checks, several networks per container, network
-> aliases, published ports, restart policies) is listed in
+> `stop`, `restart`, `rm`, `pull`, `images`, `build`, `config` — services
+> reach each other by service name and aliases, on as many networks as
+> they declare (engine v0.14.0 or later). What the engine cannot do yet
+> (health checks, published ports, restart policies) is listed in
 > [Limitations](#limitations).
 
 ## Demo
@@ -47,7 +48,7 @@ services:
       init: {condition: service_completed_successfully}
   client:
     image: labapp
-    command: [get, "http://lab-web-1:8080/"]
+    command: [get, "http://web:8080/"]
     depends_on: [web]
 volumes:
   data: {}
@@ -197,6 +198,15 @@ Resources are named and labelled as the specification says: containers
 labelled `com.docker.compose.project`, containers also
 `com.docker.compose.service`, `.container-number`, `.config-hash`,
 `.image`, `.oneoff`, `.depends_on`, networks `.network`, volumes `.volume`.
+The engine lists a project's resources by that label itself (Docker's
+`filters` parameter).
+
+**Networks**: a container joins every network its service declares, at
+creation; on each it answers to its own name, to the service's name and
+to the aliases it has there — an alias or a service name shared by
+several replicas resolves to all of them. Services on no common network
+cannot reach each other (tested: a front-only service cannot resolve a
+back-only one).
 
 **Dependencies**: `service_started` waits for the dependency's containers
 to be started; `service_completed_successfully` waits for them to exit and
@@ -321,10 +331,6 @@ playground loads one from a page.
 - What the engine cannot do yet, and compose therefore does not:
   - **health checks**: `service_healthy` fails clearly (the engine cannot
     run a command in a container yet);
-  - **one network per container**: a service on several networks joins
-    the first (by name) and a warning says which it did not join;
-  - **network aliases**: not applied (warning); a container answers to its
-    name (`lab-web-1`), not to its service's name;
   - **published ports** (`ports`) and **restart policies** (`restart`):
     accepted with a warning, not applied.
 - Builds: remote (Git URL) contexts, `additional_contexts`, `cache_from`
@@ -332,8 +338,9 @@ playground loads one from a page.
   build attributes are accepted with a warning and not applied; what the
   builder itself does not do yet is in go-wasmcontainers/build's README
   (shell-form `RUN` needs process spawning).
-- The engine's container list has no label filter yet: compose lists all
-  containers and matches the project's labels itself.
+- An engine older than v0.14.0 does not filter lists by label; compose
+  refuses to act on what such an engine lists for another project (it
+  checks every answer's label) rather than touch it.
 - `wctr compose -f FILE ...` needs wctr's root command to set cobra's
   `TraverseChildren` (global flags before the subcommand); the standalone
   `wctr-compose` sets it.

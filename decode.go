@@ -21,7 +21,7 @@ var supported = map[string]map[string]bool{
 		"working_dir", "volumes", "networks", "network_mode", "depends_on", "healthcheck",
 		"restart", "deploy", "scale", "labels", "profiles", "container_name"),
 	"deploy":      set("replicas"),
-	"build":       set("context", "dockerfile", "args", "target"),
+	"build":       set("context", "dockerfile", "dockerfile_inline", "args", "target", "tags", "no_cache"),
 	"healthcheck": set("test", "interval", "timeout", "start_period", "start_interval", "retries", "disable"),
 	"network":     set("name", "external", "driver", "internal", "labels"),
 	"volume":      set("name", "external", "driver", "labels"),
@@ -289,8 +289,22 @@ func (l *loader) service(name string, n *tree.Node) (*Service, error) {
 		if s.Build.Dockerfile, err = str(b.Get("dockerfile")); err != nil {
 			return nil, err
 		}
+		if s.Build.DockerfileInline, err = str(b.Get("dockerfile_inline")); err != nil {
+			return nil, err
+		}
+		if s.Build.Dockerfile != "" && s.Build.DockerfileInline != "" {
+			return nil, tree.Errorf(b.Pos, "%s.build: dockerfile and dockerfile_inline cannot both be set", where)
+		}
 		if s.Build.Target, err = str(b.Get("target")); err != nil {
 			return nil, err
+		}
+		if s.Build.Tags, err = stringList(b.Get("tags"), where+".build.tags"); err != nil {
+			return nil, err
+		}
+		if nc := b.Get("no_cache"); nc != nil {
+			if s.Build.NoCache, err = nc.AsBool(); err != nil {
+				return nil, err
+			}
 		}
 		if a := b.Get("args"); a != nil && a.Kind == tree.Map && len(a.Entries) > 0 {
 			s.Build.Args = map[string]*string{}

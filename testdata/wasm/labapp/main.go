@@ -65,6 +65,8 @@ func main() {
 			time.Sleep(100 * time.Millisecond)
 		}
 		fail(last)
+	case "env":
+		fmt.Printf("%s=%s\n", os.Args[2], os.Getenv(os.Args[2]))
 	case "fail":
 		fmt.Println("failing on purpose")
 		os.Exit(3)

@@ -41,6 +41,9 @@ var ErrHealthcheckUnsupported = errors.New("the engine does not run health check
 // daemon: it never reaches the engine any other way.
 type Runner struct {
 	Client *api.Client
+	// Build builds a service's image (nil: services that need building
+	// fail with ErrNoBuilder).
+	Build BuildFunc
 	// Out receives progress and logs; Err warnings.
 	Out, Err io.Writer
 }
@@ -151,7 +154,7 @@ func (r *Runner) serviceNetwork(p *Project, s *Service) string {
 // createRequest is the engine request for a service's container.
 func (r *Runner) createRequest(p *Project, s *Service, n int, network, imageID string) (api.ContainerCreateRequest, error) {
 	req := api.ContainerCreateRequest{}
-	req.Image = s.Image
+	req.Image = p.ImageName(s)
 	if s.Command != nil {
 		req.Cmd = api.StrSlice(s.Command)
 	}
@@ -268,13 +271,23 @@ func (r *Runner) Up(ctx context.Context, p *Project, o UpOptions) error {
 	if err != nil {
 		return err
 	}
+	// Images first, as the compose CLI does: a failed build creates
+	// nothing.
+	images := map[string]string{}
 	for _, n := range p.Order() {
-		if s := p.Services[n]; sel[n] && s.Image == "" && s.Build != nil {
-			return fmt.Errorf("service %q has only a build section: building needs `wctr build`, which compose does not reach yet", n)
+		if !sel[n] {
+			continue
 		}
-	}
-	if o.Build {
-		return errors.New("--build: building needs `wctr build`, which compose does not reach yet")
+		s := p.Services[n]
+		name := p.ImageName(s)
+		if _, ok := images[name]; ok {
+			continue
+		}
+		id, err := r.serviceImage(ctx, p, s, o.Build)
+		if err != nil {
+			return fmt.Errorf("service %q: %w", n, err)
+		}
+		images[name] = id
 	}
 	if err := r.ensureNetworks(ctx, p); err != nil {
 		return err
@@ -301,7 +314,6 @@ func (r *Runner) Up(ctx context.Context, p *Project, o UpOptions) error {
 		}
 		byService[c.Service] = append(byService[c.Service], c)
 	}
-	images := map[string]string{}
 	for _, n := range p.Order() {
 		if !sel[n] {
 			continue
@@ -310,13 +322,7 @@ func (r *Runner) Up(ctx context.Context, p *Project, o UpOptions) error {
 		if err := r.waitDependencies(ctx, p, s); err != nil {
 			return err
 		}
-		id, ok := images[s.Image]
-		if !ok {
-			if id, err = r.ensureImage(ctx, s.Image); err != nil {
-				return fmt.Errorf("service %q: %w", n, err)
-			}
-			images[s.Image] = id
-		}
+		id := images[p.ImageName(s)]
 		if err := r.upService(ctx, p, s, byService[n], id, o.ForceRecreate); err != nil {
 			return fmt.Errorf("service %q: %w", n, err)
 		}
@@ -384,6 +390,82 @@ func (r *Runner) ensureVolumes(ctx context.Context, p *Project) error {
 			return fmt.Errorf("volume %s: %w", v.Name, err)
 		}
 		r.printf(" Volume %s  Created\n", v.Name)
+	}
+	return nil
+}
+
+// BuildFunc builds a service's image (tagged with p.ImageName(s) and
+// its build tags) and returns its ID. Package imagebuild provides one,
+// over go-wasmcontainers/build; the loader itself does not link a builder.
+type BuildFunc func(ctx context.Context, p *Project, s *Service, noCache bool) (string, error)
+
+// ErrNoBuilder is returned when a build is needed and the Runner has no
+// BuildFunc.
+var ErrNoBuilder = errors.New("this service must be built, and no builder is configured")
+
+// serviceImage returns the ID of the image a service runs: built when
+// asked (--build) or when it is missing and the service can be built (a
+// service with an image name is pulled first, and built if the pull
+// fails: build.md, "Using build and image"); pulled otherwise.
+func (r *Runner) serviceImage(ctx context.Context, p *Project, s *Service, build bool) (string, error) {
+	name := p.ImageName(s)
+	if build && s.Build != nil {
+		return r.build(ctx, p, s, false)
+	}
+	id, err := r.imageID(ctx, name)
+	if err == nil {
+		return id, nil
+	}
+	if !api.IsNotFound(err) {
+		return "", err
+	}
+	if s.Build == nil {
+		return r.ensureImage(ctx, name)
+	}
+	if s.Image != "" {
+		if perr := r.pull(ctx, name); perr == nil {
+			return r.imageID(ctx, name)
+		} else {
+			r.warnf("service %q: %v; building it", s.Name, perr)
+		}
+	}
+	return r.build(ctx, p, s, false)
+}
+
+func (r *Runner) build(ctx context.Context, p *Project, s *Service, noCache bool) (string, error) {
+	if r.Build == nil {
+		return "", ErrNoBuilder
+	}
+	r.printf(" Image %s  Building\n", p.ImageName(s))
+	id, err := r.Build(ctx, p, s, noCache || s.Build.NoCache)
+	if err != nil {
+		return "", fmt.Errorf("build: %w", err)
+	}
+	r.printf(" Image %s  Built\n", p.ImageName(s))
+	return id, nil
+}
+
+// BuildServices builds the services that have a build section (all of
+// them when none is named): `compose build`.
+func (r *Runner) BuildServices(ctx context.Context, p *Project, services []string, noCache bool) error {
+	names := services
+	if len(names) == 0 {
+		names = p.ServiceNames()
+	}
+	for _, n := range names {
+		s, ok := p.Services[n]
+		if !ok {
+			return fmt.Errorf("no such service: %s", n)
+		}
+		if s.Build == nil {
+			if len(services) > 0 {
+				r.warnf("service %q has no build section", n)
+			}
+			continue
+		}
+		if _, err := r.build(ctx, p, s, noCache); err != nil {
+			return fmt.Errorf("service %q: %w", n, err)
+		}
 	}
 	return nil
 }

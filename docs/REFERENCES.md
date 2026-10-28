@@ -124,6 +124,21 @@ the Docker Engine API v1.47: `GET /containers/json?all=1`, `POST
 /networks/{id}`, `GET`/`POST /volumes`, `DELETE /volumes/{name}`, `POST
 /images/create`, `GET /images/{name}/json`, `GET /images/json`.
 
+## The builder
+
+The Compose Build Specification, `build.md` of compose-spec at the same
+revision: `context` relative to the Compose file's directory, or a Git
+URL; `dockerfile` relative to the context; `dockerfile_inline` exclusive
+with it; `args` (a name alone: no value unless supplied); `target`; `tags`
+in addition to `image`; `no_cache`; with both `build` and `image`, the
+image is pulled first and built if it is not found.
+
+<https://github.com/go-wasmcontainers/build> v0.2.0: `README.md`,
+`builder` (`Build`, `Options`, `Result`, caches), `buildcontext`
+(`PackFS`, `FromTar`, `ReadIgnore`, limits), `driver` (`NewClient`), and
+`cli/cli.go` (how `wctr build` finds its Containerfile and cache, which
+compose follows).
+
 cobra v1.10.2 `command.go`: `TraverseChildren` (flags of each command are
 parsed before its child's, on the command `Execute` starts from) — how the
 global `-f/--file` and `logs -f/--follow` coexist.

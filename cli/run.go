@@ -6,13 +6,20 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/go-wasmcontainers/build/builder"
 	"github.com/go-wasmcontainers/compose"
+	"github.com/go-wasmcontainers/compose/imagebuild"
 	"github.com/spf13/cobra"
 )
 
-// runner loads the project and connects to the engine.
+// runner loads the project and connects to the engine. The project's file
+// system stays open (builds read their contexts from it) until the
+// command ends (f.release, called by the wrapper Command installs).
 func runner(cmd *cobra.Command, opt Options, f *flags, services []string) (*compose.Project, *compose.Runner, error) {
-	p, err := load(opt, f)
+	p, fsys, done, err := loadFS(opt, f)
+	if done != nil {
+		f.release = append(f.release, done)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -24,7 +31,45 @@ func runner(cmd *cobra.Command, opt Options, f *flags, services []string) (*comp
 	if err != nil {
 		return nil, nil, err
 	}
-	return p, &compose.Runner{Client: c, Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr()}, nil
+	r := &compose.Runner{Client: c, Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr()}
+	cache := opt.BuildCache
+	if cache == nil && opt.FS == nil {
+		// Natively, the cache wctr build keeps; saved when the command ends.
+		if path, err := builder.DefaultCachePath(); err == nil {
+			fc := builder.OpenFileCache(path, 0)
+			cache = fc
+			f.release = append(f.release, func() {
+				if err := fc.Save(); err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "WARN the build cache was not saved: %v\n", err)
+				}
+			})
+		}
+	}
+	r.Build = imagebuild.New(imagebuild.Options{
+		FS: fsys, Client: c, Cache: cache, Out: cmd.OutOrStdout(),
+		Warn: func(w string) { fmt.Fprintln(cmd.ErrOrStderr(), "WARN", w) },
+	})
+	return p, r, nil
+}
+
+func buildCmd(opt Options, f *flags) *cobra.Command {
+	var noCache bool
+	cmd := &cobra.Command{
+		Use:   "build [SERVICE...]",
+		Short: "Build the services' images",
+		Long: `Build the images of the services that have a build section, with
+go-wasmcontainers/build through the engine. Each image is named by the
+service's image, else <project>-<service>, and by its build tags.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p, r, err := runner(cmd, opt, f, args)
+			if err != nil {
+				return err
+			}
+			return r.BuildServices(cmd.Context(), p, args, noCache)
+		},
+	}
+	cmd.Flags().BoolVar(&noCache, "no-cache", false, "run every build step")
+	return cmd
 }
 
 // byName is the project of commands that work with a name alone (down,
@@ -69,7 +114,7 @@ are followed until they all exit (an interrupt stops them).`,
 		},
 	}
 	cmd.Flags().BoolVarP(&detach, "detach", "d", false, "run in the background")
-	cmd.Flags().BoolVar(&o.Build, "build", false, "build images before starting (needs wctr build)")
+	cmd.Flags().BoolVar(&o.Build, "build", false, "build images before starting")
 	cmd.Flags().BoolVar(&o.ForceRecreate, "force-recreate", false, "recreate containers even if nothing changed")
 	cmd.Flags().BoolVar(&o.RemoveOrphans, "remove-orphans", false, "remove containers of services the project no longer defines")
 	return cmd

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-wasmcontainers/build/builder"
 	"github.com/go-wasmcontainers/engine/api"
 	"github.com/go-wasmcontainers/engine/api/inproc"
 	"github.com/go-wasmcontainers/engine/api/server"
@@ -120,8 +121,9 @@ type result struct {
 func wc(t *testing.T, c *api.Client, dir string, args ...string) result {
 	t.Helper()
 	cmd := Command(Options{
-		Client:  func() (*api.Client, error) { return c, nil },
-		Environ: func() []string { return []string{"GREETING=hi"} },
+		Client:     func() (*api.Client, error) { return c, nil },
+		Environ:    func() []string { return []string{"GREETING=hi"} },
+		BuildCache: builder.NewMemoryCache(0), // never the user's cache
 	})
 	var out, errb bytes.Buffer
 	cmd.SetOut(&out)
@@ -274,7 +276,7 @@ func TestUpAttached(t *testing.T) {
 	if err := os.WriteFile(srv, []byte("services:\n  s: {image: labapp, command: [serve, \"80\", /x]}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cmd := Command(Options{Client: func() (*api.Client, error) { return c, nil }})
+	cmd := Command(Options{Client: func() (*api.Client, error) { return c, nil }, BuildCache: builder.NewMemoryCache(0)})
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
@@ -330,7 +332,7 @@ func TestConditionsFailClearly(t *testing.T) {
 	write(`services:
   b: {build: .}
 `)
-	if r = wc(t, c, dir, "-p", "b", "up", "-d"); r.failed == nil || !strings.Contains(r.failed.Error(), "wctr build") {
+	if r = wc(t, c, dir, "-p", "b", "up", "-d"); r.failed == nil || !strings.Contains(r.failed.Error(), "no Containerfile or Dockerfile") {
 		t.Fatal(r.failed)
 	}
 	// down by name alone: no Compose file needed.

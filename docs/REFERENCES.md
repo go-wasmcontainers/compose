@@ -111,8 +111,9 @@ refused.
 
 ## The engine
 
-<https://github.com/go-wasmcontainers/engine> v0.14.0 (v0.12.0 before
-compose v0.3.0): `api/server/filters.go`, `server.go`, `networks.go`,
+<https://github.com/go-wasmcontainers/engine> v0.18.0 (v0.12.0 before
+compose v0.3.0, v0.14.0 before v0.3.1): `api` (`Filters`, the optional
+filters of `Client.Containers`, `Networks`, `Volumes`), `api/server/filters.go`, `server.go`, `networks.go`,
 `volumes.go` (the `filters` parameter: `label` on containers, networks and
 volumes, `k`, `k=v`, `k!=v`), `daemon/networks.go` and `daemon/daemon.go`
 (`NetworkingConfig.EndpointsConfig` at create: every network named there is

@@ -166,8 +166,28 @@ func TestNetworks(t *testing.T) {
 		t.Fatal("ps lists another project's container:\n" + ps)
 	}
 
-	must(t, wc(t, c, dir, "down"), "Network net_front  Removed", "Network net_back  Removed")
+	rec.mu.Lock()
+	rec.urls = nil
+	rec.mu.Unlock()
+	must(t, wc(t, c, dir, "down", "-v"), "Network net_front  Removed", "Network net_back  Removed")
 	if _, err := c.Inspect(ctx, foreign.ID); err != nil {
 		t.Fatalf("down removed another project's container: %v", err)
+	}
+	// down listed the project's networks and volumes with the filter too.
+	seen := map[string]bool{}
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	for _, u := range rec.urls {
+		for _, ep := range []string{"/containers/json", "/networks?", "/volumes?"} {
+			if strings.Contains(u, ep) {
+				if !strings.Contains(u, "com.docker.compose.project%3Dnet") {
+					t.Fatalf("an unfiltered list: %s", u)
+				}
+				seen[ep] = true
+			}
+		}
+	}
+	if len(seen) != 3 {
+		t.Fatalf("down made filtered lists of %v only: %v", seen, rec.urls)
 	}
 }

@@ -1,0 +1,36 @@
+{
+  "name": "lab",
+  "x-common": {
+    "labels": { "org.example.lab": "true" }
+  },
+  "services": {
+    "web": {
+      "image": "${REGISTRY:-localhost:5000}/web:${TAG:?set TAG}",
+      "labels": { "org.example.lab": "true" },
+      "command": ["serve", "--port", "8080", "--greeting", "hello $$USER"],
+      "environment": { "MODE": "production", "TAG": null },
+      "networks": {
+        "front": { "aliases": ["www"] },
+        "back": {}
+      },
+      "depends_on": {
+        "db": { "condition": "service_healthy" }
+      },
+      "deploy": { "replicas": 2 }
+    },
+    "db": {
+      "image": "localhost:5000/db:1",
+      "volumes": [
+        { "type": "volume", "source": "data", "target": "/var/lib/db" }
+      ],
+      "networks": ["back"],
+      "healthcheck": {
+        "test": ["CMD", "/bin/probe", "ready"],
+        "interval": "5s",
+        "retries": 3
+      }
+    }
+  },
+  "networks": { "front": {}, "back": {} },
+  "volumes": { "data": null }
+}

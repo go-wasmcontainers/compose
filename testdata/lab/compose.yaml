@@ -1,0 +1,43 @@
+# The lab application of docs/HCL.md, in YAML. compose.json and
+# compose.hcl in this directory are the same application; the tests load
+# all three to the identical model.
+name: lab
+
+x-common: &common
+  labels:
+    org.example.lab: "true"
+
+services:
+  web:
+    <<: *common
+    image: ${REGISTRY:-localhost:5000}/web:${TAG:?set TAG}
+    command: serve --port 8080 --greeting "hello $$USER"
+    environment:
+      - MODE=production
+      - TAG
+    networks:
+      front:
+        aliases: [www]
+      back: {}
+    depends_on:
+      db:
+        condition: service_healthy
+    deploy:
+      replicas: 2
+
+  db:
+    image: localhost:5000/db:1
+    volumes:
+      - data:/var/lib/db
+    networks: [back]
+    healthcheck:
+      test: ["CMD", "/bin/probe", "ready"]
+      interval: 5s
+      retries: 3
+
+networks:
+  front: {}
+  back: {}
+
+volumes:
+  data:

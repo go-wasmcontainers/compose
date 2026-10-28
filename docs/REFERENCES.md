@@ -111,6 +111,19 @@ refused.
 
 ## The engine
 
-<https://github.com/go-wasmcontainers/engine> v0.11.0: `README.md`,
-`api/types.go`, `api/inproc/inproc.go`, `cli/cli_test.go`. Compose drives
-it only through its API (a subset of the Docker Engine API v1.47).
+<https://github.com/go-wasmcontainers/engine> v0.12.0: `README.md`,
+`api/types.go`, `api/client.go` (the client's methods), `api/stdcopy.go`
+(the multiplexed log stream), `api/inproc/inproc.go`, `cli/cli.go`
+(`Options.Extra`, `Engine`: how `wctr compose` is wired),
+`container/container.go` (wait conditions `not-running`, `next-exit`,
+`removed`), `cmd/wctrd/main.go` and `cli/cli_test.go` (how an engine is
+assembled in-process). Compose drives it only through its API, a subset of
+the Docker Engine API v1.47: `GET /containers/json?all=1`, `POST
+/containers/create`, `start`, `stop`, `restart`, `wait`, `GET .../logs`,
+`DELETE /containers/{id}`, `GET`/`POST /networks`, `DELETE
+/networks/{id}`, `GET`/`POST /volumes`, `DELETE /volumes/{name}`, `POST
+/images/create`, `GET /images/{name}/json`, `GET /images/json`.
+
+cobra v1.10.2 `command.go`: `TraverseChildren` (flags of each command are
+parsed before its child's, on the command `Execute` starts from) — how the
+global `-f/--file` and `logs -f/--follow` coexist.

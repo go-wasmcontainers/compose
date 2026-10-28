@@ -287,6 +287,7 @@ func TestRefusals(t *testing.T) {
 		{"services: {s: {image: a, depends_on: [t]}, t: {image: b, depends_on: [s]}}", "dependency cycle"},
 		{"services: {s: {build: {context: ., bogus: 1}}}", `unknown attribute "bogus"`},
 		{"services: {s: {}}", "neither an image nor a build"},
+		{"services: {s: {image: 'oci:/home/me/layout:x'}}", "OCI layout on the host"},
 		{"services: {s: {image: a}}\nservices: {}", "duplicate key"},
 		{"services: {s: {image: a, restart: sometimes}}", "invalid restart policy"},
 		{"services: {s: {image: a, container_name: cc, scale: 2}}", "container_name cannot have more than one replica"},

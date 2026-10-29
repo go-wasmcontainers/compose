@@ -117,6 +117,7 @@ are followed until they all exit (an interrupt stops them).`,
 	cmd.Flags().BoolVar(&o.Build, "build", false, "build images before starting")
 	cmd.Flags().BoolVar(&o.ForceRecreate, "force-recreate", false, "recreate containers even if nothing changed")
 	cmd.Flags().BoolVar(&o.RemoveOrphans, "remove-orphans", false, "remove containers of services the project no longer defines")
+	cmd.Flags().DurationVar(&o.HealthTimeout, "wait-timeout", compose.DefaultHealthTimeout, "how long to wait for each service_healthy dependency")
 	return cmd
 }
 

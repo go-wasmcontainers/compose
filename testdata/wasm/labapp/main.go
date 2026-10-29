@@ -7,6 +7,11 @@
 //	labapp serve PORT FILE   serve FILE's content over HTTP on PORT
 //	labapp get URL           GET URL (retrying while the server starts), print the body
 //	labapp fail              exit 3
+//	labapp probe URL         GET URL once
+//	labapp lookup NAME       print how many addresses NAME resolves to
+//	labapp env NAME          print NAME=value
+//	labapp exists FILE       exit 0 if FILE exists, else 1 (a health check)
+//	labapp ready-later MS FILE  write FILE after MS milliseconds, then run on
 package main
 
 import (
@@ -27,6 +32,24 @@ func main() {
 		os.Exit(2)
 	}
 	switch os.Args[1] {
+	case "exists":
+		if _, err := os.Stat(os.Args[2]); err != nil {
+			fmt.Println("not ready:", err)
+			os.Exit(1)
+		}
+		fmt.Println("ready")
+	case "ready-later":
+		var ms int
+		fmt.Sscan(os.Args[2], &ms)
+		fmt.Println("getting ready")
+		time.Sleep(time.Duration(ms) * time.Millisecond)
+		if err := os.WriteFile(os.Args[3], []byte("ready\n"), 0o644); err != nil {
+			fail(err)
+		}
+		fmt.Println("ready")
+		for {
+			time.Sleep(time.Hour)
+		}
 	case "write":
 		if err := os.WriteFile(os.Args[2], []byte(os.Args[3]), 0o644); err != nil {
 			fail(err)

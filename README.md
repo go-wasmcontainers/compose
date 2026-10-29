@@ -22,9 +22,10 @@ builds for `GOOS=js` and `GOOS=wasip1`, because it runs in the browser
 > application runs on the engine: `up`, `down`, `ps`, `logs`, `start`,
 > `stop`, `restart`, `rm`, `pull`, `images`, `build`, `config` — services
 > reach each other by service name and aliases, on as many networks as
-> they declare, `ports` are published on the engine's host, and `restart`
-> policies are applied (engine v0.25.0 or later). What the engine cannot
-> do yet (health checks) is listed in [Limitations](#limitations).
+> they declare, `ports` are published on the engine's host, `restart`
+> policies are applied, and `healthcheck`s run, `service_healthy`
+> dependencies waiting for them (engine v0.28.0 or later). What is not
+> applied is listed in [Limitations](#limitations).
 
 ## Demo
 
@@ -210,9 +211,16 @@ back-only one).
 
 **Dependencies**: `service_started` waits for the dependency's containers
 to be started; `service_completed_successfully` waits for them to exit and
-fails `up` if one exited non-zero; `service_healthy` **fails at once**
-(`the engine does not run health checks yet`) instead of waiting forever —
-or warns and carries on when the dependency has `required: false`.
+fails `up` if one exited non-zero; `service_healthy` waits for the
+dependency's health check (run by the engine in the container: `CMD`,
+`CMD-SHELL` — which needs a `/bin/sh` in the image, e.g.
+`ghcr.io/go-wasmcontainers/shell` — or `NONE`/`disable: true`) to report
+healthy. The wait follows the engine's events (`health_status`, and the
+container's own), with a one-second safety poll; it fails at once when the
+check reports unhealthy (quoting the last probe's output), when the
+container stops first, or when it has no check, and after `--wait-timeout`
+(default 5 min) when it is still starting. A dependency with `required:
+false` that fails any of these is a warning, and `up` carries on.
 
 Without `-f`, the project directory is searched for `compose.yaml`,
 `compose.yml`, `compose.json`, `compose.hcl`, then the specification's
@@ -332,9 +340,9 @@ playground loads one from a page.
 
 ## Limitations
 
-- What the engine cannot do yet, and compose therefore does not:
-  - **health checks**: `service_healthy` fails clearly (the engine cannot
-    run a command in a container yet).
+- Health checks: what a `healthcheck` leaves unset (even `test`) comes
+  from the image's own check, which the engine merges field by field, as
+  Docker does; the engine's minimum interval is 100 ms.
 - **Ports differ from the specification on one point, on purpose**: a
   port that names no host address (`"8080:80"`, or long syntax without
   `host_ip`) is published on **127.0.0.1**, the engine's default, not on

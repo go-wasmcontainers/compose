@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	"github.com/go-wasmcontainers/engine/api"
+	"github.com/go-wasmcontainers/engine/portmap"
 )
 
 // The labels a project's resources carry. The specification mandates the
@@ -203,6 +204,29 @@ func (r *Runner) createRequest(p *Project, s *Service, n int, imageID string) (a
 		req.HostConfig.Binds = append(req.HostConfig.Binds, b)
 	}
 	req.HostConfig.NetworkMode, req.NetworkingConfig = r.serviceNetworks(p, s)
+	// ports: published on the engine's host (an empty host address is
+	// the engine's 127.0.0.1); expose: reachable, not published.
+	if len(s.Ports) > 0 {
+		var specs []string
+		for _, pt := range s.Ports {
+			specs = append(specs, pt.Spec())
+		}
+		m, err := portmap.ParseSpecs(specs)
+		if err != nil {
+			return req, err
+		}
+		req.HostConfig.PortBindings = m.API()
+	}
+	if len(s.Expose) > 0 {
+		m, err := portmap.ParseSpecs(s.Expose)
+		if err != nil {
+			return req, err
+		}
+		req.ExposedPorts = map[string]struct{}{}
+		for _, k := range m.Keys() {
+			req.ExposedPorts[k.String()] = struct{}{}
+		}
+	}
 	return req, nil
 }
 

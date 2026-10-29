@@ -2,6 +2,7 @@ package compose
 
 import (
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -45,14 +46,18 @@ type Command []string
 
 // Service is one service.
 type Service struct {
-	Name          string                     `json:"-"`
-	Image         string                     `json:"image,omitempty"`
-	Build         *Build                     `json:"build,omitempty"`
-	Command       Command                    `json:"command,omitempty"`
-	Entrypoint    Command                    `json:"entrypoint,omitempty"`
-	Environment   map[string]string          `json:"environment,omitempty"`
-	WorkingDir    string                     `json:"working_dir,omitempty"`
-	Volumes       []Mount                    `json:"volumes,omitempty"`
+	Name        string            `json:"-"`
+	Image       string            `json:"image,omitempty"`
+	Build       *Build            `json:"build,omitempty"`
+	Command     Command           `json:"command,omitempty"`
+	Entrypoint  Command           `json:"entrypoint,omitempty"`
+	Environment map[string]string `json:"environment,omitempty"`
+	WorkingDir  string            `json:"working_dir,omitempty"`
+	Volumes     []Mount           `json:"volumes,omitempty"`
+	Ports       []Port            `json:"ports,omitempty"`
+	// Expose are container ports reachable on the service's networks and
+	// not published ("80", "8000-8010/udp").
+	Expose        []string                   `json:"expose,omitempty"`
 	Networks      map[string]*ServiceNetwork `json:"networks,omitempty"`
 	NetworkMode   string                     `json:"network_mode,omitempty"`
 	DependsOn     map[string]Dependency      `json:"depends_on,omitempty"`
@@ -63,6 +68,46 @@ type Service struct {
 	Profiles      []string                   `json:"profiles,omitempty"`
 	ContainerName string                     `json:"container_name,omitempty"`
 	Extensions    map[string]any             `json:"-"`
+}
+
+// Port is a published port (workload_spec.md, ports, long syntax).
+type Port struct {
+	// Target is the container port or range ("80", "80-81").
+	Target string `json:"target"`
+	// Published is the host port or range; empty for one the system
+	// picks.
+	Published string `json:"published,omitempty"`
+	// HostIP is the host address; empty is the engine's default,
+	// 127.0.0.1 (the specification says 0.0.0.0: see the README).
+	HostIP string `json:"host_ip,omitempty"`
+	// Protocol is "tcp" (default) or "udp".
+	Protocol    string `json:"protocol,omitempty"`
+	Name        string `json:"name,omitempty"`
+	AppProtocol string `json:"app_protocol,omitempty"`
+	Mode        string `json:"mode,omitempty"`
+}
+
+// Spec is the port as `wctr run -p` writes it: [IP:][HOST:]CONTAINER/PROTO.
+func (p Port) Spec() string {
+	s := p.Target + "/" + p.protocol()
+	switch {
+	case p.HostIP != "":
+		ip := p.HostIP
+		if strings.Contains(ip, ":") {
+			ip = "[" + ip + "]"
+		}
+		s = ip + ":" + p.Published + ":" + s
+	case p.Published != "":
+		s = p.Published + ":" + s
+	}
+	return s
+}
+
+func (p Port) protocol() string {
+	if p.Protocol == "" {
+		return "tcp"
+	}
+	return p.Protocol
 }
 
 // Build is a service's build section (build.md), built by

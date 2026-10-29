@@ -286,6 +286,17 @@ func (l *loader) canonicalService(s *tree.Node, dir string) error {
 			}
 		}
 	}
+	if ps := s.Get("ports"); ps != nil && ps.Kind == tree.Seq {
+		for i, it := range ps.Items {
+			if it.Kind == tree.String || it.Kind == tree.Int {
+				m, err := shortPort(it)
+				if err != nil {
+					return err
+				}
+				ps.Items[i] = m
+			}
+		}
+	}
 	if ef := s.Get("env_file"); ef != nil {
 		if ef.Kind == tree.String {
 			ef = tree.NewSeq(ef.Pos, ef)
@@ -362,6 +373,60 @@ func shortVolume(n *tree.Node) (*tree.Node, error) {
 	return m, nil
 }
 
+// shortPort parses `[[IP:]HOST:]CONTAINER[/PROTOCOL]` (workload_spec.md,
+// ports short syntax): ports or ranges, an IPv6 address bare ("::1:80:80")
+// or in brackets ("[::1]:80:80"), an empty host part for a port the
+// system picks ("127.0.0.1::80").
+func shortPort(n *tree.Node) (*tree.Node, error) {
+	s := n.Text
+	m := tree.NewMap(n.Pos)
+	bad := func() (*tree.Node, error) {
+		return nil, tree.Errorf(n.Pos, "invalid port %q: [[IP:]HOST:]CONTAINER[/PROTOCOL]", s)
+	}
+	rest, proto, hasProto := strings.Cut(s, "/")
+	if hasProto && (proto == "" || strings.Contains(proto, "/")) {
+		return bad()
+	}
+	var ip, published, target string
+	if strings.HasPrefix(rest, "[") {
+		end := strings.Index(rest, "]:")
+		if end < 0 {
+			return bad()
+		}
+		ip, rest = rest[1:end], rest[end+2:]
+		var ok bool
+		if published, target, ok = strings.Cut(rest, ":"); !ok {
+			return bad()
+		}
+	} else {
+		parts := strings.Split(rest, ":")
+		switch len(parts) {
+		case 1:
+			target = parts[0]
+		case 2:
+			published, target = parts[0], parts[1]
+		default:
+			target = parts[len(parts)-1]
+			published = parts[len(parts)-2]
+			ip = strings.Join(parts[:len(parts)-2], ":")
+		}
+	}
+	if target == "" {
+		return bad()
+	}
+	m.Set("target", tree.NewString(target, n.Pos))
+	if published != "" {
+		m.Set("published", tree.NewString(published, n.Pos))
+	}
+	if ip != "" {
+		m.Set("host_ip", tree.NewString(ip, n.Pos))
+	}
+	if hasProto {
+		m.Set("protocol", tree.NewString(proto, n.Pos))
+	}
+	return m, nil
+}
+
 // pathIs matches a path of keys against a pattern of keys and "*".
 func pathIs(p []string, pattern ...string) bool {
 	if len(p) != len(pattern) {
@@ -426,7 +491,20 @@ func mergeNodes(base, over *tree.Node, p []string) *tree.Node {
 				}
 				return n.Text
 			})
-		case pathIs(p, "services", "*", "ports"), pathIs(p, "services", "*", "profiles"):
+		case pathIs(p, "services", "*", "ports"):
+			// Unique by {ip, target, published, protocol} (13-merge.md).
+			return mergeUnique(base, over, func(n *tree.Node) string {
+				if n.Kind != tree.Map {
+					return scalarKey(n)
+				}
+				get := func(k string) string { v, _ := n.Get(k).AsString(); return v }
+				proto := get("protocol")
+				if proto == "" {
+					proto = "tcp"
+				}
+				return get("host_ip") + "|" + get("target") + "|" + get("published") + "|" + proto
+			})
+		case pathIs(p, "services", "*", "profiles"):
 			return mergeUnique(base, over, scalarKey)
 		}
 		out := base.Clone()

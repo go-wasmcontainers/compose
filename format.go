@@ -231,6 +231,9 @@ func (s *Service) tree() *tree.Node {
 		n.Set("entrypoint", strSeq(s.Entrypoint))
 	}
 	setStringMap(n, "environment", s.Environment)
+	if len(s.Expose) > 0 {
+		n.Set("expose", strSeq(s.Expose))
+	}
 	if h := s.Healthcheck; h != nil {
 		hn := tree.NewMap(tree.Pos{})
 		if h.Disable {
@@ -273,6 +276,22 @@ func (s *Service) tree() *tree.Node {
 			m.Set(k, e)
 		}
 		n.Set("networks", m)
+	}
+	if len(s.Ports) > 0 {
+		ps := tree.NewSeq(tree.Pos{})
+		for _, p := range s.Ports {
+			e := tree.NewMap(tree.Pos{})
+			for _, f := range []struct{ k, v string }{
+				{"app_protocol", p.AppProtocol}, {"host_ip", p.HostIP}, {"mode", p.Mode}, {"name", p.Name},
+				{"protocol", p.Protocol}, {"published", p.Published}, {"target", p.Target},
+			} {
+				if f.v != "" {
+					e.Set(f.k, str2(f.v))
+				}
+			}
+			ps.Items = append(ps.Items, e)
+		}
+		n.Set("ports", ps)
 	}
 	if len(s.Profiles) > 0 {
 		n.Set("profiles", strSeq(s.Profiles))

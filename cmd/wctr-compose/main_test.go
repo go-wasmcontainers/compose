@@ -18,7 +18,7 @@ func TestConfigNative(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("compose.hcl", "service \"web\" {\n  image = \"web:${var.TAG}\"\n  ports = [\"80:80\"]\n}\n")
+	write("compose.hcl", "service \"web\" {\n  image = \"web:${var.TAG}\"\n  cap_add = [\"NET_ADMIN\"]\n}\n")
 	write(".env", "TAG=7\n")
 	var out, errb bytes.Buffer
 	if code := run([]string{"-f", filepath.Join(dir, "compose.hcl"), "config", "--format", "json"}, &out, &errb); code != 0 {
@@ -27,7 +27,7 @@ func TestConfigNative(t *testing.T) {
 	if !strings.Contains(out.String(), `"image": "web:7"`) || !strings.Contains(out.String(), `"name": "mylab"`) {
 		t.Fatal(out.String())
 	}
-	if !strings.Contains(errb.String(), "WARN") || !strings.Contains(errb.String(), "ports is not supported") {
+	if !strings.Contains(errb.String(), "WARN") || !strings.Contains(errb.String(), "cap_add is not supported") {
 		t.Fatal(errb.String())
 	}
 	out.Reset()

@@ -20,6 +20,7 @@ import (
 	"github.com/go-wasmcontainers/engine/container"
 	"github.com/go-wasmcontainers/engine/daemon"
 	"github.com/go-wasmcontainers/engine/image"
+	"github.com/go-wasmcontainers/engine/portmap"
 	"github.com/go-wasmcontainers/engine/runtime/wazero"
 )
 
@@ -100,7 +101,8 @@ func writeLayout(t *testing.T, dir, name string, module []byte) {
 func engine(t *testing.T) *api.Client {
 	t.Helper()
 	e := wazero.New(wazero.Options{EngineWASI: true})
-	d, err := daemon.New(daemon.Options{Root: filepath.Join(t.TempDir(), "data"), Containers: container.Options{Executor: e}})
+	// Published ports listen on this machine's sockets, as under wctrd.
+	d, err := daemon.New(daemon.Options{Root: filepath.Join(t.TempDir(), "data"), Containers: container.Options{Executor: e, Ports: portmap.OS{}}})
 	if err != nil {
 		t.Fatal(err)
 	}

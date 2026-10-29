@@ -2,6 +2,7 @@ package compose
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -57,17 +58,20 @@ type Service struct {
 	Ports       []Port            `json:"ports,omitempty"`
 	// Expose are container ports reachable on the service's networks and
 	// not published ("80", "8000-8010/udp").
-	Expose        []string                   `json:"expose,omitempty"`
-	Networks      map[string]*ServiceNetwork `json:"networks,omitempty"`
-	NetworkMode   string                     `json:"network_mode,omitempty"`
-	DependsOn     map[string]Dependency      `json:"depends_on,omitempty"`
-	Healthcheck   *Healthcheck               `json:"healthcheck,omitempty"`
-	Restart       string                     `json:"restart,omitempty"`
-	Replicas      int                        `json:"replicas"`
-	Labels        map[string]string          `json:"labels,omitempty"`
-	Profiles      []string                   `json:"profiles,omitempty"`
-	ContainerName string                     `json:"container_name,omitempty"`
-	Extensions    map[string]any             `json:"-"`
+	Expose      []string                   `json:"expose,omitempty"`
+	Networks    map[string]*ServiceNetwork `json:"networks,omitempty"`
+	NetworkMode string                     `json:"network_mode,omitempty"`
+	DependsOn   map[string]Dependency      `json:"depends_on,omitempty"`
+	Healthcheck *Healthcheck               `json:"healthcheck,omitempty"`
+	Restart     string                     `json:"restart,omitempty"`
+	// RestartPolicy is deploy.restart_policy; it wins over Restart
+	// (deploy.md: restart applies when restart_policy is not set).
+	RestartPolicy *RestartPolicy    `json:"restart_policy,omitempty"`
+	Replicas      int               `json:"replicas"`
+	Labels        map[string]string `json:"labels,omitempty"`
+	Profiles      []string          `json:"profiles,omitempty"`
+	ContainerName string            `json:"container_name,omitempty"`
+	Extensions    map[string]any    `json:"-"`
 }
 
 // Port is a published port (workload_spec.md, ports, long syntax).
@@ -144,6 +148,40 @@ type Mount struct {
 	Source   string `json:"source"`
 	Target   string `json:"target"`
 	ReadOnly bool   `json:"read_only,omitempty"`
+}
+
+// RestartPolicy is deploy.restart_policy (deploy.md): condition none,
+// on-failure or any (default), max_attempts (absent: never give up).
+type RestartPolicy struct {
+	Condition   string `json:"condition"`
+	MaxAttempts *int64 `json:"max_attempts,omitempty"`
+}
+
+// EngineRestart is the engine's restart policy for the service:
+// deploy.restart_policy when set, else restart. Name is "" when the
+// service sets neither (the engine's default, no restart).
+func (s *Service) EngineRestart() (name string, maxRetries int) {
+	if rp := s.RestartPolicy; rp != nil {
+		switch rp.Condition {
+		case "none":
+			return "no", 0
+		case "on-failure":
+			if rp.MaxAttempts != nil {
+				return "on-failure", int(*rp.MaxAttempts)
+			}
+			return "on-failure", 0
+		}
+		// "any": the engine's always has no attempt bound.
+		return "always", 0
+	}
+	name, n, _ := strings.Cut(s.Restart, ":")
+	if name == "on-failure" && n != "" {
+		v, err := strconv.Atoi(n)
+		if err == nil {
+			return name, v
+		}
+	}
+	return name, 0
 }
 
 // ServiceNetwork is a service's place on a network.

@@ -204,6 +204,9 @@ func (r *Runner) createRequest(p *Project, s *Service, n int, imageID string) (a
 		req.HostConfig.Binds = append(req.HostConfig.Binds, b)
 	}
 	req.HostConfig.NetworkMode, req.NetworkingConfig = r.serviceNetworks(p, s)
+	if name, n := s.EngineRestart(); name != "" {
+		req.HostConfig.RestartPolicy = &api.RestartPolicy{Name: name, MaximumRetryCount: n}
+	}
 	// ports: published on the engine's host (an empty host address is
 	// the engine's 127.0.0.1); expose: reachable, not published.
 	if len(s.Ports) > 0 {
@@ -611,7 +614,7 @@ func (r *Runner) upService(ctx context.Context, p *Project, s *Service, have []C
 		name := p.ContainerName(s, n)
 		if c, ok := byNumber[n]; ok {
 			if !force && c.Labels[LabelConfigHash] == hash && c.Labels[LabelImage] == imageID {
-				if c.State != "running" {
+				if !c.Live() {
 					if err := r.Client.Start(ctx, c.ID); err != nil {
 						return err
 					}
@@ -730,20 +733,26 @@ func (r *Runner) Down(ctx context.Context, p *Project, volumes bool) error {
 	return nil
 }
 
+// Live says whether a container runs or waits to run again under its
+// restart policy (the engine's "restarting" state): stop and rm treat both
+// as running, start and up leave both alone.
+func (c Container) Live() bool { return c.State == "running" || c.State == "restarting" }
+
 // Start starts the services' existing containers, dependencies first.
 func (r *Runner) Start(ctx context.Context, p *Project, services []string) error {
 	return r.each(ctx, p, services, false, "Started", func(c Container) error {
-		if c.State == "running" {
+		if c.Live() {
 			return nil
 		}
 		return r.Client.Start(ctx, c.ID)
 	})
 }
 
-// Stop stops the services' running containers, dependents first.
+// Stop stops the services' running (or restarting) containers,
+// dependents first; a stop ends a restart policy until the next start.
 func (r *Runner) Stop(ctx context.Context, p *Project, services []string) error {
 	return r.each(ctx, p, services, true, "Stopped", func(c Container) error {
-		if c.State != "running" {
+		if !c.Live() {
 			return nil
 		}
 		return r.Client.Stop(ctx, c.ID)
@@ -760,7 +769,7 @@ func (r *Runner) Restart(ctx context.Context, p *Project, services []string) err
 // Rm removes the services' stopped containers (running ones too with stop).
 func (r *Runner) Rm(ctx context.Context, p *Project, services []string, stop bool) error {
 	return r.each(ctx, p, services, true, "Removed", func(c Container) error {
-		if c.State == "running" && !stop {
+		if c.Live() && !stop {
 			return errSkip
 		}
 		return r.Client.Remove(ctx, c.ID, stop)

@@ -155,7 +155,7 @@ func psCmd(opt Options, f *flags) *cobra.Command {
 			out := cmd.OutOrStdout()
 			if quiet {
 				for _, c := range filter(cs, args) {
-					if all || c.State == "running" {
+					if all || c.Live() {
 						fmt.Fprintln(out, c.ID)
 					}
 				}
@@ -164,7 +164,7 @@ func psCmd(opt Options, f *flags) *cobra.Command {
 			tw := tabwriter.NewWriter(out, 0, 0, 3, ' ', 0)
 			fmt.Fprintln(tw, "NAME\tIMAGE\tCOMMAND\tSERVICE\tCREATED\tSTATUS")
 			for _, c := range filter(cs, args) {
-				if !all && c.State != "running" {
+				if !all && !c.Live() {
 					continue
 				}
 				fmt.Fprintf(tw, "%s\t%s\t%q\t%s\t%s\t%s\n", c.Name, c.Image, truncate(c.Command, 20), c.Service, ago(c.Created), c.Status)

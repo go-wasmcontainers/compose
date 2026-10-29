@@ -21,16 +21,19 @@ var supported = map[string]map[string]bool{
 	"service": set("image", "build", "command", "entrypoint", "environment", "env_file",
 		"working_dir", "volumes", "networks", "network_mode", "depends_on", "healthcheck",
 		"restart", "deploy", "scale", "labels", "profiles", "container_name", "ports", "expose"),
-	"port":        set("target", "published", "host_ip", "protocol", "mode", "name", "app_protocol"),
-	"deploy":      set("replicas"),
-	"build":       set("context", "dockerfile", "dockerfile_inline", "args", "target", "tags", "no_cache"),
-	"healthcheck": set("test", "interval", "timeout", "start_period", "start_interval", "retries", "disable"),
-	"network":     set("name", "external", "driver", "internal", "labels"),
-	"volume":      set("name", "external", "driver", "labels"),
-	"svcnet":      set("aliases"),
-	"dependency":  set("condition", "restart", "required"),
-	"mount":       set("type", "source", "target", "read_only"),
-	"env_file":    set("path", "required", "format"),
+	"port":   set("target", "published", "host_ip", "protocol", "mode", "name", "app_protocol"),
+	"deploy": set("replicas", "restart_policy"),
+	// delay and window are accepted with a warning: the engine's own
+	// backoff (100 ms doubling to 1 min) applies.
+	"restart_policy": set("condition", "max_attempts"),
+	"build":          set("context", "dockerfile", "dockerfile_inline", "args", "target", "tags", "no_cache"),
+	"healthcheck":    set("test", "interval", "timeout", "start_period", "start_interval", "retries", "disable"),
+	"network":        set("name", "external", "driver", "internal", "labels"),
+	"volume":         set("name", "external", "driver", "labels"),
+	"svcnet":         set("aliases"),
+	"dependency":     set("condition", "restart", "required"),
+	"mount":          set("type", "source", "target", "read_only"),
+	"env_file":       set("path", "required", "format"),
 }
 
 func set(keys ...string) map[string]bool {
@@ -372,9 +375,6 @@ func (l *loader) service(name string, n *tree.Node) (*Service, error) {
 		if !restartRe.MatchString(s.Restart) {
 			return nil, tree.Errorf(r.Pos, "invalid restart policy %q: no, always, on-failure[:N] or unless-stopped", s.Restart)
 		}
-		if s.Restart != "no" {
-			l.warn("%s: %s.restart is recorded but not applied: the engine has no restart policy yet", r.Pos, where)
-		}
 	}
 	if c := n.Get("container_name"); c != nil {
 		if s.ContainerName, err = c.AsString(); err != nil {
@@ -559,6 +559,32 @@ func (l *loader) replicas(s *Service, n *tree.Node, where string) error {
 		if r := d.Get("replicas"); r != nil {
 			if replicas, err = r.AsInt(); err != nil {
 				return err
+			}
+		}
+		if rp := d.Get("restart_policy"); rp != nil && rp.Kind != tree.Null {
+			if _, err := l.keys(rp, where+".deploy.restart_policy", []string{"services", "*", "deploy", "restart_policy"}, "restart_policy"); err != nil {
+				return err
+			}
+			s.RestartPolicy = &RestartPolicy{Condition: "any"}
+			if c := rp.Get("condition"); c != nil {
+				if s.RestartPolicy.Condition, err = c.AsString(); err != nil {
+					return err
+				}
+			}
+			switch s.RestartPolicy.Condition {
+			case "none", "on-failure", "any":
+			default:
+				return tree.Errorf(rp.Pos, "%s.deploy.restart_policy: condition %q (none, on-failure or any)", where, s.RestartPolicy.Condition)
+			}
+			if m := rp.Get("max_attempts"); m != nil {
+				v, err := m.AsInt()
+				if err != nil {
+					return err
+				}
+				if v < 0 || v > 1<<20 {
+					return tree.Errorf(m.Pos, "%s.deploy.restart_policy: max_attempts %d out of range", where, v)
+				}
+				s.RestartPolicy.MaxAttempts = &v
 			}
 		}
 	}

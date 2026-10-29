@@ -222,9 +222,19 @@ func (s *Service) tree() *tree.Node {
 		}
 		n.Set("depends_on", d)
 	}
-	if s.Replicas != 1 {
+	if s.Replicas != 1 || s.RestartPolicy != nil {
 		d := tree.NewMap(tree.Pos{})
-		d.Set("replicas", intNode(int64(s.Replicas)))
+		if s.Replicas != 1 {
+			d.Set("replicas", intNode(int64(s.Replicas)))
+		}
+		if rp := s.RestartPolicy; rp != nil {
+			r := tree.NewMap(tree.Pos{})
+			r.Set("condition", str2(rp.Condition))
+			if rp.MaxAttempts != nil {
+				r.Set("max_attempts", intNode(*rp.MaxAttempts))
+			}
+			d.Set("restart_policy", r)
+		}
 		n.Set("deploy", d)
 	}
 	if s.Entrypoint != nil {

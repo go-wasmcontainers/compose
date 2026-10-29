@@ -22,9 +22,9 @@ builds for `GOOS=js` and `GOOS=wasip1`, because it runs in the browser
 > application runs on the engine: `up`, `down`, `ps`, `logs`, `start`,
 > `stop`, `restart`, `rm`, `pull`, `images`, `build`, `config` — services
 > reach each other by service name and aliases, on as many networks as
-> they declare, and `ports` are published on the engine's host (engine
-> v0.22.0 or later). What the engine cannot do yet (health checks, restart
-> policies) is listed in [Limitations](#limitations).
+> they declare, `ports` are published on the engine's host, and `restart`
+> policies are applied (engine v0.25.0 or later). What the engine cannot
+> do yet (health checks) is listed in [Limitations](#limitations).
 
 ## Demo
 
@@ -168,7 +168,7 @@ is `--file` there, and `--follow` after `logs`.
 | `down` | `-v/--volumes` (never external ones). Works with `-p NAME` alone, with no Compose file |
 | `ps [SERVICE...]` | `-a/--all`, `-q/--quiet` |
 | `logs [SERVICE...]` | `-f/--follow`; lines prefixed with the container's name |
-| `start`, `stop`, `restart` `[SERVICE...]` | dependencies first (stop: dependents first) |
+| `start`, `stop`, `restart` `[SERVICE...]` | dependencies first (stop: dependents first); `stop` also stops a container waiting to restart, and ends its restart policy until the next start |
 | `rm [SERVICE...]` | `-s/--stop`; stopped containers only otherwise; `-f` accepted (there is no question) |
 | `pull [SERVICE...]` | |
 | `images [SERVICE...]` | |
@@ -231,8 +231,12 @@ Everything the specification defines is parsed; what this engine applies:
   `aliases`), `ports` (short and long syntax), `expose`, `network_mode: none`, `depends_on` (`service_started`,
   `service_healthy`, `service_completed_successfully`, `required`,
   `restart`), `healthcheck`, `deploy.replicas` / `scale` (at most 64),
-  `labels`, `profiles`, `container_name`, `restart` (recorded), `x-`
-  extensions.
+  `labels`, `profiles`, `container_name`, `restart` (`no`, `always`,
+  `on-failure[:N]`, `unless-stopped`) and `deploy.restart_policy`
+  (`condition` none/on-failure/any → no/on-failure/always, `max_attempts`;
+  it wins over `restart`, as deploy.md says; `delay` and `window` are
+  warned about: the engine's backoff, 100 ms doubling to 1 min, applies),
+  `x-` extensions.
 - **Top level**: `name`, `services`, `networks` (`name`, `external`,
   `internal`, `labels`), `volumes` (`name`, `external`, `labels`),
   `include`, `x-` extensions; `version` is obsolete (warning).
@@ -243,8 +247,8 @@ Everything the specification defines is parsed; what this engine applies:
   `COMPOSE_PROFILES`).
 - **Validation**: an attribute the specification does not define is an
   error (the specification's JSON schema, embedded, says which); one it
-  defines that this engine does not apply (`restart` until the engine has
-  restart policies, `cap_add`, `logging`, ...) is a warning, printed by every
+  defines that this engine does not apply (`cap_add`, `logging`, ...) is a
+  warning, printed by every
   command. References (services, networks, volumes), dependency cycles,
   label prefixes, restart policies, durations are checked. Every error
   carries `file:line:column`.
@@ -330,9 +334,7 @@ playground loads one from a page.
 
 - What the engine cannot do yet, and compose therefore does not:
   - **health checks**: `service_healthy` fails clearly (the engine cannot
-    run a command in a container yet);
-  - **restart policies** (`restart`): accepted with a warning, not
-    applied.
+    run a command in a container yet).
 - **Ports differ from the specification on one point, on purpose**: a
   port that names no host address (`"8080:80"`, or long syntax without
   `host_ip`) is published on **127.0.0.1**, the engine's default, not on
@@ -356,9 +358,7 @@ playground loads one from a page.
   other than `bridge`, volume drivers other than `local`, files outside the
   project directory, `image: oci:<dir>` (an OCI layout on the host: `wctr
   pull` it first, then name the image), infinities and NaN.
-- Accepted with a warning and not applied: `restart` (no restart policy in
-  the engine yet),
-  `secrets`, `configs`, `models`, and every other attribute the engine has
+- Accepted with a warning and not applied: `secrets`, `configs`, `models`, and every other attribute the engine has
   no use for.
 - `include` conflicts are errors (the specification asks for a warning).
 - An `x-` extension whose name is not an HCL identifier cannot be written

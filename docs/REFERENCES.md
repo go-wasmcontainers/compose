@@ -156,6 +156,16 @@ an empty host address listens on 127.0.0.1 (`DefaultHostIP`); bindings
 are bounded (`MaxBindings`); `api.ContainerConfig.ExposedPorts` carries
 `expose`.
 
+Restart: `05-services.md` `restart` (`no`, `always`, `on-failure[:max-retries]`,
+`unless-stopped`) and `deploy.md` `restart_policy` (`condition` none /
+on-failure / any, the default; `delay`, `max_attempts`, `window`; "If
+`restart_policy` is not set, Compose considers the `restart` field").
+Engine v0.25.0 `api.HostConfig.RestartPolicy` (`Name` no / always /
+unless-stopped / on-failure, `MaximumRetryCount`), its backoff (100 ms
+doubling to 1 min), a user stop ending the policy until the next start, and
+the `restarting` state, which compose treats as running for `stop`, `rm`,
+`start`, `up` and `ps`.
+
 cobra v1.10.2 `command.go`: `TraverseChildren` (flags of each command are
 parsed before its child's, on the command `Execute` starts from) — how the
 global `-f/--file` and `logs -f/--follow` coexist.

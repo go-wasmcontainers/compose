@@ -1,4 +1,20 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["github>go-wasmcontainers/.github"]
+  "extends": ["github>go-wasmcontainers/.github"],
+  "docker-compose": {
+    "description": [
+      "testdata/ holds Compose files that are test inputs (images such as localhost:5000/db that exist nowhere), not this repository's dependencies. Scoped to the docker-compose manager so that testdata/wasm/labapp/go.mod, the test guest's real Go dependencies, stays updated. ignorePaths is not mergeable: the list repeats config:recommended's (:ignoreModulesAndTests) and adds testdata."
+    ],
+    "ignorePaths": [
+      "**/node_modules/**",
+      "**/bower_components/**",
+      "**/vendor/**",
+      "**/examples/**",
+      "**/__tests__/**",
+      "**/test/**",
+      "**/tests/**",
+      "**/__fixtures__/**",
+      "**/testdata/**"
+    ]
+  }
 }

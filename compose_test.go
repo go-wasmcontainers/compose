@@ -172,7 +172,7 @@ services:
 	if _, ok := s.Labels["k1"]; ok || s.Labels["k2"] != "b" {
 		t.Errorf("labels %v", s.Labels)
 	}
-	if !strings.Contains(strings.Join(p.Warnings, "\n"), "ports is not supported") {
+	if !strings.Contains(strings.Join(p.Warnings, "\n"), "dns is not supported") {
 		t.Errorf("warnings %v", p.Warnings)
 	}
 }

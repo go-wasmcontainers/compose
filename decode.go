@@ -10,6 +10,7 @@ import (
 	"github.com/go-wasmcontainers/compose/dotenv"
 	"github.com/go-wasmcontainers/compose/schema"
 	"github.com/go-wasmcontainers/compose/tree"
+	"github.com/go-wasmcontainers/engine/portmap"
 )
 
 // supported lists, per place in the model, the attributes this
@@ -19,7 +20,8 @@ var supported = map[string]map[string]bool{
 	"": set("name", "services", "networks", "volumes", "include"),
 	"service": set("image", "build", "command", "entrypoint", "environment", "env_file",
 		"working_dir", "volumes", "networks", "network_mode", "depends_on", "healthcheck",
-		"restart", "deploy", "scale", "labels", "profiles", "container_name"),
+		"restart", "deploy", "scale", "labels", "profiles", "container_name", "ports", "expose"),
+	"port":        set("target", "published", "host_ip", "protocol", "mode", "name", "app_protocol"),
 	"deploy":      set("replicas"),
 	"build":       set("context", "dockerfile", "dockerfile_inline", "args", "target", "tags", "no_cache"),
 	"healthcheck": set("test", "interval", "timeout", "start_period", "start_interval", "retries", "disable"),
@@ -477,7 +479,69 @@ func (l *loader) service(name string, n *tree.Node) (*Service, error) {
 			s.Volumes = append(s.Volumes, m)
 		}
 	}
+	if ps := n.Get("ports"); ps != nil && ps.Kind != tree.Null {
+		if ps.Kind != tree.Seq {
+			return nil, tree.Errorf(ps.Pos, "ports must be a list")
+		}
+		for _, it := range ps.Items {
+			p, err := l.port(it, where)
+			if err != nil {
+				return nil, err
+			}
+			s.Ports = append(s.Ports, p)
+		}
+	}
+	if s.Expose, err = stringList(n.Get("expose"), where+".expose"); err != nil {
+		return nil, err
+	}
+	for _, e := range s.Expose {
+		if strings.Contains(e, ":") {
+			return nil, tree.Errorf(n.Get("expose").Pos, "%s.expose: %q: only container ports, PORT[-END][/PROTOCOL]", where, e)
+		}
+		if _, err := portmap.ParseSpec(e); err != nil {
+			return nil, tree.Errorf(n.Get("expose").Pos, "%s.expose: %v", where, err)
+		}
+	}
+	if len(s.Ports) > 0 && s.NetworkMode == "none" {
+		return nil, tree.Errorf(n.Get("ports").Pos, "%s: ports cannot be published with network_mode: none", where)
+	}
 	return s, nil
+}
+
+// port reads one ports entry (long syntax; canonical() turned the short
+// syntax into it), checked as `wctr run -p` would read it.
+func (l *loader) port(it *tree.Node, where string) (Port, error) {
+	var p Port
+	if _, err := l.keys(it, where+".ports", []string{"services", "*", "ports", "[]"}, "port"); err != nil {
+		return p, err
+	}
+	var err error
+	for _, f := range []struct {
+		key string
+		dst *string
+	}{{"target", &p.Target}, {"published", &p.Published}, {"host_ip", &p.HostIP}, {"protocol", &p.Protocol},
+		{"name", &p.Name}, {"app_protocol", &p.AppProtocol}, {"mode", &p.Mode}} {
+		if *f.dst, err = str(it.Get(f.key)); err != nil {
+			return p, err
+		}
+	}
+	if p.Target == "" {
+		return p, tree.Errorf(it.Pos, "%s.ports: a port needs a target", where)
+	}
+	switch p.Protocol {
+	case "", "tcp", "udp":
+	default:
+		return p, tree.Errorf(it.Pos, "%s.ports: protocol %q (tcp or udp)", where, p.Protocol)
+	}
+	switch p.Mode {
+	case "", "host", "ingress":
+	default:
+		return p, tree.Errorf(it.Pos, "%s.ports: mode %q (host or ingress)", where, p.Mode)
+	}
+	if _, err := portmap.ParseSpec(p.Spec()); err != nil {
+		return p, tree.Errorf(it.Pos, "%s.ports: %q: %v", where, p.Spec(), err)
+	}
+	return p, nil
 }
 
 func (l *loader) replicas(s *Service, n *tree.Node, where string) error {

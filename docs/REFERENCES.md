@@ -18,7 +18,7 @@ copied, with their LICENSE and NOTICE, into `testdata/compose-spec/` and
 | `04-version-and-name.md` | `version` is obsolete (warning); `name` is the default project name, exposed as `COMPOSE_PROJECT_NAME` |
 | `05-services.md` | `container_name` (no scaling past one); `extends` and its merge rules (mappings, sequences with de-duplication, scalars; volumes keyed by target); `profiles` names; `restart` values; `scale` |
 | `container_spec.md` | `command`/`entrypoint` (`null` = the image's, `[]` = cleared), `env_file` (required, format `raw`, the env-file syntax), `environment` (a bare name takes the environment's value or is unset), `labels` (`com.docker.compose` prefix reserved: an error), `network_mode`, `networks` (implicit `default`, `aliases`), `volumes` short and long syntax |
-| `workload_spec.md` | `depends_on` short and long syntax (`service_started`, `service_healthy`, `service_completed_successfully`, `restart`, `required`), `healthcheck` (test forms `NONE`/`CMD`/`CMD-SHELL`, a string meaning `CMD-SHELL`) |
+| `workload_spec.md` | `depends_on` short and long syntax (`service_started`, `service_healthy`, `service_completed_successfully`, `restart`, `required`), `healthcheck` (test forms `NONE`/`CMD`/`CMD-SHELL`, a string meaning `CMD-SHELL`), `ports` (short syntax `[HOST:]CONTAINER[/PROTOCOL]` with `HOST` = `[IP:](port\|range)`, bare or bracketed IPv6, ranges of equal length; long syntax `target`, `published`, `host_ip`, `protocol`, `app_protocol`, `mode`, `name`; an absent host IP is `0.0.0.0` in the specification, 127.0.0.1 here, on purpose), `expose` |
 | `06-networks.md` | the implicit `default` network; `external`; `name` |
 | `07-volumes.md` | named volumes; `external` (only `name` allowed besides it); `name` not scoped; driver unavailable = error; labels `com.docker.compose.project`/`.volume` |
 | `10-fragments.md` | anchors and aliases resolve before interpolation; YAML merge keys |
@@ -148,6 +148,13 @@ from v0.2.1 accepts a base with or without the trailing API version:
 `TestDriverBaseForms` checks both against the engine), and
 `cli/cli.go` (how `wctr build` finds its Containerfile and cache, which
 compose follows).
+
+Engine v0.22.0 `portmap` (package documentation): `ParseSpec`/`ParseSpecs`
+read `-p` values as Docker's `nat.ParsePortSpec` does and are what compose
+checks each `ports` entry with and turns into `HostConfig.PortBindings`;
+an empty host address listens on 127.0.0.1 (`DefaultHostIP`); bindings
+are bounded (`MaxBindings`); `api.ContainerConfig.ExposedPorts` carries
+`expose`.
 
 cobra v1.10.2 `command.go`: `TraverseChildren` (flags of each command are
 parsed before its child's, on the command `Execute` starts from) — how the

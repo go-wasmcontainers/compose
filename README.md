@@ -22,9 +22,9 @@ builds for `GOOS=js` and `GOOS=wasip1`, because it runs in the browser
 > application runs on the engine: `up`, `down`, `ps`, `logs`, `start`,
 > `stop`, `restart`, `rm`, `pull`, `images`, `build`, `config` — services
 > reach each other by service name and aliases, on as many networks as
-> they declare (engine v0.14.0 or later; built against v0.18.0). What the engine cannot do yet
-> (health checks, published ports, restart policies) is listed in
-> [Limitations](#limitations).
+> they declare, and `ports` are published on the engine's host (engine
+> v0.22.0 or later). What the engine cannot do yet (health checks, restart
+> policies) is listed in [Limitations](#limitations).
 
 ## Demo
 
@@ -228,7 +228,7 @@ Everything the specification defines is parsed; what this engine applies:
   `dockerfile_inline`, `args`, `target`, `tags`, `no_cache`), `command`,
   `entrypoint`, `environment`, `env_file` (with `required` and `format:
   raw`), `working_dir`, `volumes` (named volumes), `networks` (with
-  `aliases`), `network_mode: none`, `depends_on` (`service_started`,
+  `aliases`), `ports` (short and long syntax), `expose`, `network_mode: none`, `depends_on` (`service_started`,
   `service_healthy`, `service_completed_successfully`, `required`,
   `restart`), `healthcheck`, `deploy.replicas` / `scale` (at most 64),
   `labels`, `profiles`, `container_name`, `restart` (recorded), `x-`
@@ -243,8 +243,8 @@ Everything the specification defines is parsed; what this engine applies:
   `COMPOSE_PROFILES`).
 - **Validation**: an attribute the specification does not define is an
   error (the specification's JSON schema, embedded, says which); one it
-  defines that this engine does not apply (`ports` until the engine
-  publishes ports, `cap_add`, `logging`, ...) is a warning, printed by every
+  defines that this engine does not apply (`restart` until the engine has
+  restart policies, `cap_add`, `logging`, ...) is a warning, printed by every
   command. References (services, networks, volumes), dependency cycles,
   label prefixes, restart policies, durations are checked. Every error
   carries `file:line:column`.
@@ -331,8 +331,15 @@ playground loads one from a page.
 - What the engine cannot do yet, and compose therefore does not:
   - **health checks**: `service_healthy` fails clearly (the engine cannot
     run a command in a container yet);
-  - **published ports** (`ports`) and **restart policies** (`restart`):
-    accepted with a warning, not applied.
+  - **restart policies** (`restart`): accepted with a warning, not
+    applied.
+- **Ports differ from the specification on one point, on purpose**: a
+  port that names no host address (`"8080:80"`, or long syntax without
+  `host_ip`) is published on **127.0.0.1**, the engine's default, not on
+  every interface (`0.0.0.0`) as the specification says — a lab container
+  should not become a service on the machine's network by accident. Write
+  `"0.0.0.0:8080:80"` (or `host_ip: 0.0.0.0`) when that is meant. `mode`,
+  `name` and `app_protocol` are kept in the model and have no effect.
 - Builds: remote (Git URL) contexts, `additional_contexts`, `cache_from`
   / `cache_to`, `platforms`, `secrets`, `ssh`, build `labels` and the other
   build attributes are accepted with a warning and not applied; what the
@@ -349,8 +356,8 @@ playground loads one from a page.
   other than `bridge`, volume drivers other than `local`, files outside the
   project directory, `image: oci:<dir>` (an OCI layout on the host: `wctr
   pull` it first, then name the image), infinities and NaN.
-- Accepted with a warning and not applied: `ports` (until the engine
-  publishes ports), `restart` (no restart policy in the engine yet),
+- Accepted with a warning and not applied: `restart` (no restart policy in
+  the engine yet),
   `secrets`, `configs`, `models`, and every other attribute the engine has
   no use for.
 - `include` conflicts are errors (the specification asks for a warning).

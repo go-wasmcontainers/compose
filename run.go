@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-wasmcontainers/engine/api"
 	"github.com/go-wasmcontainers/engine/portmap"
@@ -32,11 +33,6 @@ const (
 	LabelVolume          = "com.docker.compose.volume"
 	LabelDependsOn       = "com.docker.compose.depends_on"
 )
-
-// ErrHealthcheckUnsupported is what `service_healthy` meets: the engine
-// cannot run a health check yet (it has no way to run a command in a
-// running container). Failing beats waiting forever.
-var ErrHealthcheckUnsupported = errors.New("the engine does not run health checks yet (it cannot run a command in a container), so condition service_healthy can never be met")
 
 // Runner drives an engine through its API, as the compose CLI drives a
 // daemon: it never reaches the engine any other way.
@@ -207,6 +203,7 @@ func (r *Runner) createRequest(p *Project, s *Service, n int, imageID string) (a
 	if name, n := s.EngineRestart(); name != "" {
 		req.HostConfig.RestartPolicy = &api.RestartPolicy{Name: name, MaximumRetryCount: n}
 	}
+	req.Healthcheck = engineHealth(s.Healthcheck)
 	// ports: published on the engine's host (an empty host address is
 	// the engine's 127.0.0.1); expose: reachable, not published.
 	if len(s.Ports) > 0 {
@@ -259,6 +256,9 @@ type UpOptions struct {
 	Build bool
 	// RemoveOrphans removes containers of services no longer defined.
 	RemoveOrphans bool
+	// HealthTimeout bounds the wait for each service_healthy dependency
+	// (0: DefaultHealthTimeout).
+	HealthTimeout time.Duration
 }
 
 // withDeps returns the named services and those they depend on.
@@ -354,7 +354,7 @@ func (r *Runner) Up(ctx context.Context, p *Project, o UpOptions) error {
 			continue
 		}
 		s := p.Services[n]
-		if err := r.waitDependencies(ctx, p, s); err != nil {
+		if err := r.waitDependencies(ctx, p, s, o.HealthTimeout); err != nil {
 			return err
 		}
 		id := images[p.ImageName(s)]
@@ -548,8 +548,125 @@ func (r *Runner) pull(ctx context.Context, ref string) error {
 	return nil
 }
 
+// engineHealth is a service's healthcheck as the engine takes it
+// (Config.Healthcheck, durations in nanoseconds); disable: true is
+// Test ["NONE"]. Nil leaves the image's check.
+func engineHealth(h *Healthcheck) *api.HealthConfig {
+	if h == nil {
+		return nil
+	}
+	if h.Disable {
+		return &api.HealthConfig{Test: []string{"NONE"}}
+	}
+	hc := &api.HealthConfig{Test: h.Test}
+	ns := func(d *time.Duration) int64 {
+		if d == nil {
+			return 0
+		}
+		return int64(*d)
+	}
+	hc.Interval, hc.Timeout = ns(h.Interval), ns(h.Timeout)
+	hc.StartPeriod, hc.StartInterval = ns(h.StartPeriod), ns(h.StartInterval)
+	if h.Retries != nil {
+		hc.Retries = int(*h.Retries)
+	}
+	return hc
+}
+
+// DefaultHealthTimeout bounds the wait for one dependency to become
+// healthy (UpOptions.HealthTimeout overrides it).
+const DefaultHealthTimeout = 5 * time.Minute
+
+// ErrUnhealthy is a dependency whose health check reported unhealthy, or
+// that stopped before it was healthy.
+var ErrUnhealthy = errors.New("unhealthy")
+
+// waitHealthy waits for a container's health status to be healthy,
+// driven by the engine's events: it subscribes to the container's events
+// first, then reads its state, and reads it again at each event, so no
+// change is missed between the two. It fails at once on "unhealthy", on a
+// container that stopped, on one without a health check, and after
+// timeout.
+func (r *Runner) waitHealthy(ctx context.Context, c Container, timeout time.Duration) error {
+	if timeout <= 0 {
+		timeout = DefaultHealthTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	wake := make(chan struct{}, 1)
+	ended := make(chan error, 1)
+	go func() {
+		ended <- r.Client.Events(ctx, api.EventsOptions{Filters: map[string][]string{"type": {"container"}, "container": {c.ID}}},
+			func(api.EventMessage) error {
+				select {
+				case wake <- struct{}{}:
+				default:
+				}
+				return nil
+			})
+	}()
+	poll := time.NewTicker(time.Second) // a safety net: events are the signal
+	defer poll.Stop()
+	for {
+		raw, err := r.Client.Inspect(ctx, c.ID)
+		if err != nil {
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return fmt.Errorf("%s was not healthy after %s (status starting)", c.Name, timeout)
+			}
+			return err
+		}
+		var in struct {
+			State struct {
+				Running, Restarting bool
+				ExitCode            int
+				Health              *api.Health
+			}
+		}
+		if err := json.Unmarshal(raw, &in); err != nil {
+			return err
+		}
+		h := in.State.Health
+		switch {
+		case h == nil:
+			return fmt.Errorf("%s has no health check", c.Name)
+		case h.Status == "healthy":
+			return nil
+		case h.Status == "unhealthy":
+			return fmt.Errorf("%s is %w%s", c.Name, ErrUnhealthy, lastProbe(h))
+		case !in.State.Running && !in.State.Restarting:
+			return fmt.Errorf("%s exited (%d) before it was healthy: %w", c.Name, in.State.ExitCode, ErrUnhealthy)
+		}
+		select {
+		case <-wake:
+		case <-poll.C:
+		case err := <-ended:
+			if ctx.Err() == nil {
+				r.warnf("events of %s ended (%v); reading its state every second", c.Name, err)
+			}
+		case <-ctx.Done():
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return fmt.Errorf("%s was not healthy after %s (status %s%s)", c.Name, timeout, h.Status, lastProbe(h))
+			}
+			return ctx.Err()
+		}
+	}
+}
+
+// lastProbe quotes the last health probe's output, bounded.
+func lastProbe(h *api.Health) string {
+	if len(h.Log) == 0 {
+		return ""
+	}
+	l := h.Log[len(h.Log)-1]
+	out := strings.TrimSpace(l.Output)
+	if len(out) > 200 {
+		out = out[:200] + "…"
+	}
+	return fmt.Sprintf("; last probe exited %d: %q", l.ExitCode, out)
+}
+
 // waitDependencies blocks until each dependency's condition holds.
-func (r *Runner) waitDependencies(ctx context.Context, p *Project, s *Service) error {
+func (r *Runner) waitDependencies(ctx context.Context, p *Project, s *Service, timeout time.Duration) error {
 	for _, d := range sortedKeys(s.DependsOn) {
 		dep := s.DependsOn[d]
 		if _, ok := p.Services[d]; !ok {
@@ -557,11 +674,24 @@ func (r *Runner) waitDependencies(ctx context.Context, p *Project, s *Service) e
 		}
 		switch dep.Condition {
 		case ServiceHealthy:
-			if !dep.Required {
-				r.warnf("service %q: dependency %q: %v; continuing (required: false)", s.Name, d, ErrHealthcheckUnsupported)
-				continue
+			cs, err := r.Containers(ctx, p.Name)
+			if err != nil {
+				return err
 			}
-			return fmt.Errorf("service %q depends on %q being healthy: %w", s.Name, d, ErrHealthcheckUnsupported)
+			for _, c := range cs {
+				if c.Service != d {
+					continue
+				}
+				if err := r.waitHealthy(ctx, c, timeout); err != nil {
+					err = fmt.Errorf("service %q depends on %q being healthy: %w", s.Name, d, err)
+					if !dep.Required {
+						r.warnf("%v; continuing (required: false)", err)
+						continue
+					}
+					return err
+				}
+				r.printf(" Container %s  Healthy\n", c.Name)
+			}
 		case ServiceCompletedSuccessfully:
 			cs, err := r.Containers(ctx, p.Name)
 			if err != nil {

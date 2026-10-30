@@ -22,6 +22,7 @@ import (
 	"github.com/go-wasmcontainers/engine/image"
 	"github.com/go-wasmcontainers/engine/portmap"
 	"github.com/go-wasmcontainers/engine/runtime/wazero"
+	"github.com/go-wasmcontainers/engine/wasi"
 )
 
 var (
@@ -100,7 +101,9 @@ func writeLayout(t *testing.T, dir, name string, module []byte) {
 // sockets) and returns an API client reaching it with no socket.
 func engine(t *testing.T) *api.Client {
 	t.Helper()
-	e := wazero.New(wazero.Options{EngineWASI: true})
+	// The engine's WASI host with its WASIX process calls, as wctrd runs
+	// it: the shell image and health checks spawn programs.
+	e := wazero.New(wazero.Options{EngineWASI: true, HostModules: []wasi.HostModule{wasi.WASIX}})
 	// Published ports listen on this machine's sockets, as under wctrd.
 	d, err := daemon.New(daemon.Options{Root: filepath.Join(t.TempDir(), "data"), Containers: container.Options{Executor: e, Ports: portmap.OS{}}})
 	if err != nil {
@@ -314,11 +317,13 @@ func TestConditionsFailClearly(t *testing.T) {
 		}
 	}
 	write(`services:
-  db: {image: labapp, command: [serve, "5432", /nope], healthcheck: {test: [CMD, /bin/true]}}
+  db: {image: labapp, command: [serve, "5432", /nope], healthcheck: {test: [CMD, /bin/true], interval: 200ms, retries: 2}}
   app: {image: labapp, command: [fail], depends_on: {db: {condition: service_healthy}}}
 `)
+	// The probe's program does not exist in the image: the check fails,
+	// twice, and up stops with the reason instead of waiting.
 	r := wc(t, c, dir, "-p", "h", "up", "-d")
-	if r.failed == nil || !strings.Contains(r.failed.Error(), `"app" depends on "db" being healthy`) || !strings.Contains(r.failed.Error(), "does not run health checks yet") {
+	if r.failed == nil || !strings.Contains(r.failed.Error(), `"app" depends on "db" being healthy`) || !strings.Contains(r.failed.Error(), "h-db-1 is unhealthy") {
 		t.Fatalf("%v\n%s", r.failed, r.out)
 	}
 	must(t, wc(t, c, dir, "-p", "h", "down"), "Container h-db-1  Removed")

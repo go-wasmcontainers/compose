@@ -156,6 +156,18 @@ an empty host address listens on 127.0.0.1 (`DefaultHostIP`); bindings
 are bounded (`MaxBindings`); `api.ContainerConfig.ExposedPorts` carries
 `expose`.
 
+Health: `workload_spec.md` `healthcheck` and `depends_on`
+`service_healthy`. Engine v0.28.0 `container/health.go` (a check runs
+through the exec machinery: `CMD` argv, `CMD-SHELL` by `/bin/sh -c`,
+`NONE`; StartPeriod, StartInterval, Interval, Retries, Timeout; statuses
+starting / healthy / unhealthy; a change of status is a `health_status:
+<status>` event), `daemon/daemon.go` (`mergeHealth`: the request's check
+overrides the image's field by field), `api.Health`, `api.HealthConfig`
+(durations in nanoseconds), `api.Client.Events`; `cmd/wctrd/main.go`
+(`HostModules: wasi.WASIX`, which process spawning — and so `CMD-SHELL` —
+needs). go-wasmcontainers/shell README: the base image
+`ghcr.io/go-wasmcontainers/shell` (`/bin/sh`, coreutils).
+
 Restart: `05-services.md` `restart` (`no`, `always`, `on-failure[:max-retries]`,
 `unless-stopped`) and `deploy.md` `restart_policy` (`condition` none /
 on-failure / any, the default; `delay`, `max_attempts`, `window`; "If

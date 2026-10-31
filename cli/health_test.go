@@ -130,14 +130,16 @@ services:
 }
 
 // TestServiceHealthyShell is the coordinator's case with the shell base
-// image: CMD-SHELL `test -f /ready`, and a service that creates /ready
+// image: CMD-SHELL `ls /ready` (coreutils' ls, started by sh through
+// WASIX; a FILE operand is listed since coreutils v0.5.0 — shell 0.1.0
+// and 0.2.0 said "not a directory"), and a service that creates /ready
 // after a delay with the shell's sleep and touch.
 func TestServiceHealthyShell(t *testing.T) {
 	if testing.Short() {
 		t.Skip("pulls ghcr.io/go-wasmcontainers/shell")
 	}
 	c := engine(t)
-	const shell = "ghcr.io/go-wasmcontainers/shell:0.1.0"
+	const shell = "ghcr.io/go-wasmcontainers/shell:0.3.0"
 	if err := c.Pull(context.Background(), shell, func(api.JSONMessage) {}); err != nil {
 		if os.Getenv("COMPOSE_TEST_OFFLINE") != "" {
 			t.Skipf("offline: %v", err)
@@ -151,7 +153,7 @@ services:
     image: `+shell+`
     command: ["/bin/sh", "-c", "sleep 1; touch /ready; sleep 600"]
     healthcheck:
-      test: ["CMD-SHELL", "test -f /ready"]
+      test: ["CMD-SHELL", "ls /ready"]
       interval: 200ms
       start_interval: 200ms
       start_period: 30s

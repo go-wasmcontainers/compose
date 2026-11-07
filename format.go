@@ -12,7 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/go-wasmcontainers/compose/tree"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 // Format is a Compose file format.

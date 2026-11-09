@@ -4,7 +4,7 @@ go 1.27.3
 
 require (
 	github.com/go-wasmcontainers/build v0.4.0
-	github.com/go-wasmcontainers/engine v0.38.0
+	github.com/go-wasmcontainers/engine v0.39.0
 	github.com/hashicorp/hcl/v2 v2.25.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/spf13/cobra v1.10.2
@@ -20,7 +20,7 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/klauspost/compress v1.20.3 // indirect
 	github.com/mitchellh/go-wordwrap v1.0.1 // indirect
-	github.com/spf13/pflag v1.0.10 // indirect
+	github.com/spf13/pflag v1.1.0 // indirect
 	github.com/tetratelabs/wazero v1.12.0 // indirect
 	golang.org/x/mod v0.42.0 // indirect
 	golang.org/x/net v0.62.0 // indirect

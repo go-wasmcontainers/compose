@@ -24,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
-        with: { go-version: '1.27.3' }
+        with: { go-version: '1.27.4' }
       # Say which toolchain ran: a green check that does not record its
       # compiler makes every number measured under it unattributable.
       - run: go version
@@ -69,7 +69,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
-        with: { go-version: '1.27.3' }
+        with: { go-version: '1.27.4' }
       - run: go version
       - run: go test -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime 45s ${{ matrix.pkg }}
 
@@ -79,7 +79,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
-        with: { go-version: '1.27.3' }
+        with: { go-version: '1.27.4' }
       - run: go version
       # No pipefail on purpose: govulncheck's exit status does not say
       # whether a finding is reachable; vulngate judges the JSON, and an
@@ -102,7 +102,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
-        with: { go-version: '1.27.3' }
+        with: { go-version: '1.27.4' }
       - run: go version
       - run: GOOS=js GOARCH=wasm CGO_ENABLED=0 go vet ./...
       - name: the command builds for js/wasm and wasip1/wasm
@@ -127,7 +127,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
-        with: { go-version: '1.27.3' }
+        with: { go-version: '1.27.4' }
       - run: go version
       - run: GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} CGO_ENABLED=0 go build ./...
 
@@ -138,6 +138,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
-        with: { go-version: '1.27.3' }
+        with: { go-version: '1.27.4' }
       - run: go version
       - run: GOARCH=386 CGO_ENABLED=0 go test -count=1 ./...
